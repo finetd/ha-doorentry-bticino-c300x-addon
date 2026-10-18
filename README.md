@@ -13,7 +13,7 @@ Per le entità in Home Assistant serve anche l'**integrazione** (repository sepa
 `https://github.com/finetd/ha-doorentry-bticino-c300x`
 
 ## Documentazione
-Vedi il README dell'add-on in [`bticino_c300x/`](bticino_c300x/).
+Vedi il README dell'add-on in [`doorentry_bticino_c300x/`](doorentry_bticino_c300x/).
 
 ## Licenza
 MIT — vedi [LICENSE](LICENSE).
