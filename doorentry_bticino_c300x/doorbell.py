@@ -413,7 +413,10 @@ class Handler(BaseHTTPRequestHandler):
             peer = f"sip:c300x@{gw}"
             OUTGOING_CAPTURE["active"] = True
             log(f"cattura on-demand (sperimentale): chiamo {peer}")
-            send_cmd("dialdir", f"{peer} audio=sendrecv video=recvonly")
+            # video=sendrecv: alcuni posti esterni trasmettono il video solo se "vedono" traffico
+            # dalla nostra parte (media simmetrico). baresip invia il fakevideo, noi riceviamo il
+            # loro flusso e lo catturiamo. audio=sendrecv come fa l'app.
+            send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
             self._send(200, b"chiamata avviata, guarda i log")
         elif path.startswith("/cmd/raw"):
             # test manuale: invia un frame OpenWebNet qualsiasi -> /cmd/raw?f=*8*19*21##
