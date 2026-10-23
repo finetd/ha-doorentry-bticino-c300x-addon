@@ -28,6 +28,7 @@ static struct {
 	uint32_t srate;            /* sample rate preso dal primo frame audio         */
 	uint8_t  ch;               /* canali                                          */
 	int      y4m_header_done;  /* header Y4M scritto al primo frame video         */
+	uint32_t vframes;          /* numero di frame video scritti (diagnostica)     */
 	char basepath[512];
 } R = { .lock = PTHREAD_MUTEX_INITIALIZER };
 
@@ -119,14 +120,18 @@ static int vid_dec(struct vidfilt_dec_st *st, struct vidframe *frame, uint64_t *
 	if (!frame || frame->fmt != VID_FMT_YUV420P) return 0;
 	pthread_mutex_lock(&R.lock);
 	if (R.active && R.y4m) {
-		int w = frame->linesize[0], h = frame->size.h;
-		/* dimensioni effettive del contenuto */
-		w = frame->size.w;
+		int w = frame->size.w, h = frame->size.h;
 		if (!R.y4m_header_done) {
-			/* Y4M header: 15 fps nominali, interlaccio progressivo, pixel ratio 1:1 */
-			fprintf(R.y4m, "YUV4MPEG2 W%d H%d F15:1 Ip A1:1\n", w, h);
+			/* Y4M header: dichiariamo 10 fps nominali (il C300X in autoaccensione invia
+			   ~9-10 fps). doorbell.py comunque calcola l'fps reale dai frame scritti e
+			   la passa a ffmpeg con -r, per audio e video sincronizzati. */
+			fprintf(R.y4m, "YUV4MPEG2 W%d H%d F10:1 Ip A1:1\n", w, h);
 			R.y4m_header_done = 1;
+			info("recorder: primo frame video %dx%d, header Y4M scritto\n", w, h);
 		}
+		R.vframes++;
+		if (R.vframes <= 5 || R.vframes % 25 == 0)
+			info("recorder: frame video #%u (%dx%d)\n", R.vframes, w, h);
 		fputs("FRAME\n", R.y4m);
 		int uv_w = w / 2, uv_h = h / 2;
 		for (int y = 0; y < h; y++)
@@ -168,6 +173,7 @@ static int cmd_start(struct re_printf *pf, void *arg)
 	wav_write_header(R.wav, R.srate ? R.srate : 8000, R.ch ? R.ch : 1, 0);
 	R.wav_data_bytes = 0;
 	R.y4m_header_done = 0;
+	R.vframes = 0;
 	R.active = 1;
 	pthread_mutex_unlock(&R.lock);
 	return re_hprintf(pf, "recorder_start: ok %s\n", R.basepath);
@@ -184,8 +190,15 @@ static int cmd_stop(struct re_printf *pf, void *arg)
 		fclose(R.wav); R.wav = NULL;
 	}
 	if (R.y4m) { fclose(R.y4m); R.y4m = NULL; }
+	uint32_t saved_bytes = R.wav_data_bytes;
+	uint32_t saved_vframes = R.vframes;
+	/* reset per la prossima registrazione (altrimenti il secondo giro usa srate/header vecchi) */
+	R.wav_data_bytes = 0;
+	R.y4m_header_done = 0;
+	R.vframes = 0;
 	pthread_mutex_unlock(&R.lock);
-	return re_hprintf(pf, "recorder_stop: ok (%u byte audio)\n", R.wav_data_bytes);
+	return re_hprintf(pf, "recorder_stop: ok (%u byte audio, %u frame video)\n",
+	                  saved_bytes, saved_vframes);
 }
 
 static const struct cmd cmdv[] = {
