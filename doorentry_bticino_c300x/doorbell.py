@@ -216,6 +216,10 @@ def capture_snapshot():
         # qualche secondo di ritardo (l'audio stesso parte dopo ~5s): diamo una finestra ampia.
         # capture_snapshot esce comunque appena arriva il primo fotogramma valido.
         for attempt in range(CAPTURE_ATTEMPTS):
+            # sollecita il video: il posto esterno in autoaccensione invia il flusso solo dopo
+            # una richiesta di keyframe (RTCP FIR). La chiediamo ripetutamente nei primi secondi.
+            if attempt < 10:
+                send_cmd("keyframe")
             send_cmd("snapshot")
             time.sleep(1.0)
             png = _newest_png_after(t0)
