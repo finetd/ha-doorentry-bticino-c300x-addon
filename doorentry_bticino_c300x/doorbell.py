@@ -72,6 +72,11 @@ _ctrl_lock = threading.Lock()
 
 # cattura on-demand SPERIMENTALE: attiva una chiamata uscente verso il posto esterno
 OUTGOING_CAPTURE = {"active": False}
+# registrazione on-demand: come la cattura, ma registra audio+video per N secondi
+OUTGOING_RECORD = {"active": False, "duration": 30, "basepath": "", "mp4": ""}
+
+RECORDINGS_DIR = os.path.join(WORKDIR, "recordings")
+os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
@@ -202,6 +207,45 @@ def _cleanup_pngs():
                 os.remove(p)
             except OSError:
                 pass
+
+
+def _run_outgoing_record():
+    """Esegue la registrazione: start, attesa, stop, muxing MP4 con ffmpeg, hangup."""
+    import subprocess
+    base = OUTGOING_RECORD["basepath"]
+    mp4 = OUTGOING_RECORD["mp4"]
+    dur = OUTGOING_RECORD["duration"]
+    # dai qualche secondo al video per iniziare (keyframe + camera warm-up), come /cmd/capture
+    time.sleep(min(SNAPSHOT_DELAY, 2.0))
+    for _ in range(8):           # alcune FIR per far partire il video
+        send_cmd("keyframe")
+        time.sleep(0.5)
+    send_cmd("recorder_start", base)
+    log(f"registrazione in corso per {dur}s...")
+    time.sleep(dur)
+    send_cmd("recorder_stop")
+    time.sleep(0.3)
+    send_cmd("hangup")
+    OUTGOING_RECORD["active"] = False
+
+    wav, y4m = f"{base}.wav", f"{base}.y4m"
+    if not (os.path.exists(wav) and os.path.exists(y4m)):
+        log("registrazione: file mancanti, muxing annullato"); return
+    log(f"muxing MP4 con ffmpeg: {mp4}")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-i", y4m, "-i", wav,
+             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-b:a", "64k", "-shortest", mp4],
+            check=True, timeout=120)
+        log(f"registrazione salvata: {mp4}")
+    except Exception as e:
+        log(f"ffmpeg fallito: {e}")
+    finally:
+        for f in (wav, y4m):
+            try: os.remove(f)
+            except OSError: pass
 
 
 def capture_snapshot():
@@ -405,6 +449,26 @@ class Handler(BaseHTTPRequestHandler):
             info = {k: RT.get(k) for k in ("plant_name", "plant_id", "gateway_id",
                                            "devaddr", "device_count", "devices")}
             self._send(200, json.dumps(info).encode(), "application/json")
+        elif path == "/cmd/record":
+            # registra audio+video per N secondi (default 30) e salva un MP4
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                duration = max(5, min(120, int((q.get("duration") or ["30"])[0])))
+            except ValueError:
+                duration = 30
+            gw = RT.get("gw_domain", "")
+            if not gw:
+                self._send(500, b"dominio gateway sconosciuto"); return
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            base = os.path.join("/tmp", f"rec-{ts}")
+            mp4 = os.path.join(RECORDINGS_DIR, f"{ts}.mp4")
+            OUTGOING_RECORD.update({"active": True, "duration": duration,
+                                    "basepath": base, "mp4": mp4})
+            peer = f"sip:c300x@{gw}"
+            log(f"registrazione on-demand: {duration}s -> {mp4}")
+            send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
+            self._send(200, (f"registrazione avviata ({duration}s), file: {mp4}").encode())
         elif path == "/cmd/capture":
             # SPERIMENTALE: chiama il posto esterno e cattura (per testare la patch sa_af)
             gw = RT.get("gw_domain", "")
@@ -537,9 +601,11 @@ def control_loop():
                 else:
                     log("notify_only: squilla, non rispondo (lascio squillare gli altri)")
 
-            if etype == "CALL_ESTABLISHED" and (state["we_accepted"] or OUTGOING_CAPTURE["active"]):
-                time.sleep(SNAPSHOT_DELAY)   # attesa iniziale del primo keyframe
-                capture_snapshot()           # poi riprova finché il fotogramma è valido
+            if etype == "CALL_ESTABLISHED" and OUTGOING_RECORD["active"]:
+                _run_outgoing_record()
+            elif etype == "CALL_ESTABLISHED" and (state["we_accepted"] or OUTGOING_CAPTURE["active"]):
+                time.sleep(SNAPSHOT_DELAY)
+                capture_snapshot()
                 time.sleep(0.3)
                 send_cmd("hangup")
                 OUTGOING_CAPTURE["active"] = False
