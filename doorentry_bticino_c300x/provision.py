@@ -308,7 +308,7 @@ def add_mod_lines():
             "speex.so", "g729.so",
             "g711.so", "g722.so", "g726.so", "opus.so", "amr.so", "gsm.so",
             "aubridge.so",
-            "owncmd.so",
+            "owncmd.so", "recorder.so",
             "avcodec.so", "swscale.so", "snapshot.so", "fakevideo.so", "account.so"]
     lines = []
     present_audio = []
