@@ -602,13 +602,18 @@ def control_loop():
                     log("notify_only: squilla, non rispondo (lascio squillare gli altri)")
 
             if etype == "CALL_ESTABLISHED" and OUTGOING_RECORD["active"]:
-                _run_outgoing_record()
+                # IMPORTANTE: eseguiamo in un thread per NON bloccare il ctrl_loop che riceve
+                # gli eventi di baresip. Un time.sleep(30) qui farebbe perdere eventi e,
+                # peggio, interromperebbe il flusso di comandi mantenendo la chiamata appesa.
+                threading.Thread(target=_run_outgoing_record, daemon=True).start()
             elif etype == "CALL_ESTABLISHED" and (state["we_accepted"] or OUTGOING_CAPTURE["active"]):
-                time.sleep(SNAPSHOT_DELAY)
-                capture_snapshot()
-                time.sleep(0.3)
-                send_cmd("hangup")
-                OUTGOING_CAPTURE["active"] = False
+                def _do_capture():
+                    time.sleep(SNAPSHOT_DELAY)
+                    capture_snapshot()
+                    time.sleep(0.3)
+                    send_cmd("hangup")
+                    OUTGOING_CAPTURE["active"] = False
+                threading.Thread(target=_do_capture, daemon=True).start()
 
             if etype == "CALL_CLOSED":
                 # se la chiamata si chiude prima del timeout (qualcuno ha risposto altrove),
