@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.1
+- Stato "Connesso" corretto fin dall'avvio: oltre all'evento REGISTER_OK, l'add-on rileva la
+  registrazione dalla riga di log "Registration successful", che compare subito (prima si vedeva
+  "disconnesso" per ~9 minuti, fino al primo keepalive).
+
 ## 1.13.0
 - Nuovo sensore di connettività: l'add-on traccia lo stato della registrazione SIP al cloud
   (eventi REGISTER_OK/REGISTER_FAIL) con timeout sul keepalive, ed espone "connected" in /state.
