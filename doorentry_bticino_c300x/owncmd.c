@@ -43,8 +43,32 @@ static int cmd_owncmd(struct re_printf *pf, void *arg)
 	return re_hprintf(pf, "owncmd: inviato '%s' a %s\n", frame, peer);
 }
 
+/* Richiede un keyframe (RTCP FIR/PLI) alla chiamata attiva: serve a far partire il flusso video
+   del posto esterno in autoaccensione, che altrimenti invia solo audio. */
+static int cmd_keyframe(struct re_printf *pf, void *arg)
+{
+	const char *peer = getenv("OWN_PEER");
+	struct ua *ua;
+	struct call *call;
+	struct video *vid;
+	(void)arg;
+
+	ua = (peer && str_isset(peer)) ? uag_find_requri(peer) : NULL;
+	if (!ua)
+		return re_hprintf(pf, "keyframe: nessun UA\n");
+	call = ua_call(ua);
+	if (!call)
+		return re_hprintf(pf, "keyframe: nessuna chiamata attiva\n");
+	vid = call_video(call);
+	if (!vid)
+		return re_hprintf(pf, "keyframe: nessun video sulla chiamata\n");
+	video_req_keyframe(vid);
+	return re_hprintf(pf, "keyframe: richiesta inviata\n");
+}
+
 static const struct cmd cmdv[] = {
-	{"owncmd", 0, CMD_PRM, "Invia frame OpenWebNet via SIP MESSAGE", cmd_owncmd},
+	{"owncmd",   0, CMD_PRM, "Invia frame OpenWebNet via SIP MESSAGE", cmd_owncmd},
+	{"keyframe", 0, 0,       "Richiede un keyframe video (RTCP FIR)",  cmd_keyframe},
 };
 
 static int module_init(void)
