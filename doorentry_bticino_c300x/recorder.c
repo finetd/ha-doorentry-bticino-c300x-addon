@@ -221,11 +221,52 @@ static const struct cmd cmdv[] = {
 	{"recorder_stop",  0, 0,       "Chiude i file di registrazione", cmd_stop},
 };
 
+/* Per alcune versioni di baresip, un aufilt senza handler di encode non viene instanziato
+   affatto per lo stream: dichiariamo encupdh/ench no-op (ritornano 0, non alterano l'audio TX).
+   Questo garantisce che decupdh/dech vengano effettivamente chiamati per l'audio in ingresso. */
+static int au_encupd(struct aufilt_enc_st **stp, void **ctx, const struct aufilt *af,
+                     struct aufilt_prm *prm, const struct audio *au)
+{
+	(void)ctx; (void)prm; (void)au;
+	if (*stp) return 0;
+	struct rec_enc *st = mem_zalloc(sizeof(*st), NULL);
+	if (!st) return ENOMEM;
+	st->af.af = af;
+	*stp = &st->af;
+	return 0;
+}
+static int au_enc(struct aufilt_enc_st *st, struct auframe *af)
+{
+	(void)st; (void)af;
+	return 0;   /* nessuna modifica all'audio trasmesso */
+}
+
 static struct aufilt af_rec = {
-	.name = "recorder", .decupdh = au_decupd, .dech = au_dec,
+	.name = "recorder",
+	.encupdh = au_encupd, .ench = au_enc,
+	.decupdh = au_decupd, .dech = au_dec,
 };
+static int vid_encupd(struct vidfilt_enc_st **stp, void **ctx, const struct vidfilt *vf,
+                      struct vidfilt_prm *prm, const struct video *vid)
+{
+	(void)ctx; (void)prm; (void)vid;
+	if (*stp) return 0;
+	struct vidfilt_enc_st *st = mem_zalloc(sizeof(*st), NULL);
+	if (!st) return ENOMEM;
+	st->vf = vf;
+	*stp = st;
+	return 0;
+}
+static int vid_enc(struct vidfilt_enc_st *st, struct vidframe *frame, uint64_t *timestamp)
+{
+	(void)st; (void)frame; (void)timestamp;
+	return 0;
+}
+
 static struct vidfilt vf_rec = {
-	.name = "recorder", .decupdh = vid_decupd, .dech = vid_dec,
+	.name = "recorder",
+	.encupdh = vid_encupd, .ench = vid_enc,
+	.decupdh = vid_decupd, .dech = vid_dec,
 };
 
 static int module_init(void)
