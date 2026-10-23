@@ -78,6 +78,12 @@ OUTGOING_RECORD = {"active": False, "duration": 30, "basepath": "", "mp4": ""}
 RECORDINGS_DIR = os.path.join(WORKDIR, "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
+# ripulisce le vecchie registrazioni con timestamp (ora teniamo solo last.mp4)
+for _f in os.listdir(RECORDINGS_DIR):
+    if _f != "last.mp4" and _f.endswith(".mp4"):
+        try: os.remove(os.path.join(RECORDINGS_DIR, _f))
+        except OSError: pass
+
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
          "missed": False, "missed_count": 0, "last_missed": 0.0,
@@ -478,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, b"dominio gateway sconosciuto"); return
             ts = time.strftime("%Y%m%d-%H%M%S")
             base = os.path.join("/tmp", f"rec-{ts}")
-            mp4 = os.path.join(RECORDINGS_DIR, f"{ts}.mp4")
+            mp4 = os.path.join(RECORDINGS_DIR, "last.mp4")   # sempre lo stesso nome: solo l'ultima
             OUTGOING_RECORD.update({"active": True, "duration": duration,
                                     "basepath": base, "mp4": mp4})
             peer = f"sip:c300x@{gw}"
