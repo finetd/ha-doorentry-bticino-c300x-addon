@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.0
+- Nuovo sensore di connettività: l'add-on traccia lo stato della registrazione SIP al cloud
+  (eventi REGISTER_OK/REGISTER_FAIL) con timeout sul keepalive, ed espone "connected" in /state.
+  L'integrazione aggiunge il binary_sensor "Connesso" (device class connectivity).
+
 ## 1.12.0
 Prima versione pubblica. Funzionalità principali:
 - Provisioning automatico da sole email e password dell'app Door Entry: l'add-on crea un interno
