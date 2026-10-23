@@ -239,16 +239,18 @@ def _run_outgoing_record():
         log("registrazione: file mancanti, muxing annullato"); return
     log(f"file intermedi: wav={os.path.getsize(wav)} byte, y4m={os.path.getsize(y4m)} byte")
 
-    # Il citofono in autoaccensione invia a frame rate variabile (~9-10 fps). Il modulo
-    # scrive l'header Y4M con un valore nominale, ma qui calcoliamo la fps REALE contando i
-    # frame scritti e la durata effettiva: così audio e video restano sincronizzati nel MP4.
+    # fps reale = frame scritti / durata di registrazione effettiva.
+    # NB: calcoliamo sulla durata della finestra (dur secondi), non su quella dell'audio,
+    # perché l'audio potrebbe non esserci (bug noto). Il video arriva a ~9-10 fps dal C300X.
     try:
         with open(y4m, "rb") as f:
-            nframes = f.read().count(b"FRAME\n")  # un "FRAME\n" per ogni frame
-        audio_bytes = os.path.getsize(wav) - 44
-        audio_dur = max(0.1, audio_bytes / (8000 * 2))  # 8kHz mono 16-bit
-        fps_real = max(1.0, min(30.0, nframes / audio_dur)) if nframes > 1 else 10.0
-        log(f"muxing MP4: {nframes} frame video / {audio_dur:.1f}s audio -> {fps_real:.2f} fps")
+            nframes = f.read().count(b"FRAME\n")
+        audio_bytes = max(0, os.path.getsize(wav) - 44)
+        audio_dur = audio_bytes / (8000 * 2)
+        # usiamo dur (la finestra di registrazione) come riferimento di durata
+        fps_real = max(1.0, min(30.0, nframes / dur)) if nframes > 1 else 10.0
+        log(f"muxing MP4: {nframes} frame video / {dur}s finestra -> {fps_real:.2f} fps "
+            f"(audio={audio_bytes} byte = {audio_dur:.1f}s)")
     except Exception as e:
         log(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
 
