@@ -29,6 +29,7 @@ static struct {
 	uint8_t  ch;               /* canali                                          */
 	int      y4m_header_done;  /* header Y4M scritto al primo frame video         */
 	uint32_t vframes;          /* numero di frame video scritti (diagnostica)     */
+	uint32_t aframes;          /* numero di callback audio (diagnostica)          */
 	char basepath[512];
 } R = { .lock = PTHREAD_MUTEX_INITIALIZER };
 
@@ -91,12 +92,24 @@ static int au_dec(struct aufilt_dec_st *st, struct auframe *af)
 {
 	(void)st;
 	if (!af || !af->sampv || !af->sampc) return 0;
-	if (af->fmt != AUFMT_S16LE) return 0;   /* solo PCM 16-bit, come dal decoder G729 */
 	pthread_mutex_lock(&R.lock);
 	if (R.active && R.wav) {
-		size_t bytes = af->sampc * 2;
-		if (fwrite(af->sampv, 1, bytes, R.wav) == bytes)
-			R.wav_data_bytes += (uint32_t)bytes;
+		R.aframes++;
+		if (R.aframes <= 3)
+			info("recorder: audio frame #%u fmt=%d sampc=%zu\n",
+			     R.aframes, af->fmt, af->sampc);
+		/* G.729 decoder emette S16LE a 8kHz, ma non diamo per scontato nulla:
+		   accettiamo S16LE (ottimale) e RAW (lo trattiamo come S16LE perché il flusso
+		   intermedio in baresip è PCM interleaved 16-bit) */
+		if (af->fmt == AUFMT_S16LE || af->fmt == AUFMT_RAW) {
+			size_t bytes = af->sampc * 2;
+			if (fwrite(af->sampv, 1, bytes, R.wav) == bytes)
+				R.wav_data_bytes += (uint32_t)bytes;
+		}
+		else if (R.aframes == 1) {
+			warning("recorder: formato audio inatteso (%d), audio non registrato\n",
+			        af->fmt);
+		}
 	}
 	pthread_mutex_unlock(&R.lock);
 	return 0;
@@ -174,6 +187,7 @@ static int cmd_start(struct re_printf *pf, void *arg)
 	R.wav_data_bytes = 0;
 	R.y4m_header_done = 0;
 	R.vframes = 0;
+	R.aframes = 0;
 	R.active = 1;
 	pthread_mutex_unlock(&R.lock);
 	return re_hprintf(pf, "recorder_start: ok %s\n", R.basepath);
@@ -196,6 +210,7 @@ static int cmd_stop(struct re_printf *pf, void *arg)
 	R.wav_data_bytes = 0;
 	R.y4m_header_done = 0;
 	R.vframes = 0;
+	R.aframes = 0;
 	pthread_mutex_unlock(&R.lock);
 	return re_hprintf(pf, "recorder_stop: ok (%u byte audio, %u frame video)\n",
 	                  saved_bytes, saved_vframes);
