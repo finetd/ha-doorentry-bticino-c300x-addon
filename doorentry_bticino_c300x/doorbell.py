@@ -69,7 +69,11 @@ _ctrl_lock = threading.Lock()
 
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
-         "missed": False, "missed_count": 0, "last_missed": 0.0}
+         "missed": False, "missed_count": 0, "last_missed": 0.0,
+         "registered": False, "last_register": 0.0}
+# se non arriva un REGISTER_OK entro questo tempo, consideriamo la connessione persa.
+# La registrazione si rinnova ~ogni 9 min (regint 600s): diamo margine.
+REGISTER_TIMEOUT = 800.0
 _ring_timer = None
 _missed_timer = None
 MISSED_HOLD = 30.0   # per quanto tenere "acceso" lo stato Chiamata persa (s)
@@ -360,6 +364,9 @@ class Handler(BaseHTTPRequestHandler):
                 "ringing": STATE["ringing"],
                 "ring_count": STATE["ring_count"],
                 "last_ring": STATE["last_ring"],
+                "connected": STATE["registered"]
+                and (time.time() - STATE["last_register"] < REGISTER_TIMEOUT),
+                "last_register": STATE["last_register"],
                 "missed": STATE["missed"],
                 "missed_count": STATE["missed_count"],
                 "last_missed": STATE["last_missed"],
@@ -482,6 +489,12 @@ def control_loop():
             etype = ev.get("type", "")
             if ev.get("event") and etype:
                 log(f"evento baresip: {etype}")
+
+            if etype == "REGISTER_OK":
+                STATE["registered"] = True
+                STATE["last_register"] = time.time()
+            elif etype in ("REGISTER_FAIL", "UNREGISTERING"):
+                STATE["registered"] = False
 
             if etype == "CALL_INCOMING":
                 _mark_ringing()
