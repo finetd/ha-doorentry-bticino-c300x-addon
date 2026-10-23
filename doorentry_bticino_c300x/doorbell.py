@@ -67,6 +67,9 @@ FRAMES = {
 _ctrl_sock = None
 _ctrl_lock = threading.Lock()
 
+# cattura on-demand SPERIMENTALE: attiva una chiamata uscente verso il posto esterno
+OUTGOING_CAPTURE = {"active": False}
+
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
          "missed": False, "missed_count": 0, "last_missed": 0.0,
@@ -392,6 +395,16 @@ class Handler(BaseHTTPRequestHandler):
             info = {k: RT.get(k) for k in ("plant_name", "plant_id", "gateway_id",
                                            "devaddr", "device_count", "devices")}
             self._send(200, json.dumps(info).encode(), "application/json")
+        elif path == "/cmd/capture":
+            # SPERIMENTALE: chiama il posto esterno e cattura (per testare la patch sa_af)
+            gw = RT.get("gw_domain", "")
+            if not gw:
+                self._send(500, b"dominio gateway sconosciuto"); return
+            peer = f"sip:c300x@{gw}"
+            OUTGOING_CAPTURE["active"] = True
+            log(f"cattura on-demand (sperimentale): chiamo {peer}")
+            send_cmd("dialdir", f"{peer} audio=sendrecv video=recvonly")
+            self._send(200, b"chiamata avviata, guarda i log")
         elif path.startswith("/cmd/raw"):
             # test manuale: invia un frame OpenWebNet qualsiasi -> /cmd/raw?f=*8*19*21##
             from urllib.parse import urlparse, parse_qs
@@ -511,11 +524,12 @@ def control_loop():
                 else:
                     log("notify_only: squilla, non rispondo (lascio squillare gli altri)")
 
-            if etype == "CALL_ESTABLISHED" and state["we_accepted"]:
+            if etype == "CALL_ESTABLISHED" and (state["we_accepted"] or OUTGOING_CAPTURE["active"]):
                 time.sleep(SNAPSHOT_DELAY)   # attesa iniziale del primo keyframe
                 capture_snapshot()           # poi riprova finché il fotogramma è valido
                 time.sleep(0.3)
                 send_cmd("hangup")
+                OUTGOING_CAPTURE["active"] = False
 
             if etype == "CALL_CLOSED":
                 # se la chiamata si chiude prima del timeout (qualcuno ha risposto altrove),
