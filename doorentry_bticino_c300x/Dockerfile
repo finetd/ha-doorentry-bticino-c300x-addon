@@ -22,8 +22,10 @@ RUN git clone --depth 1 https://github.com/BelledonneCommunications/bcg729.git \
     && cmake --build bcg729/build -j"$(nproc)" \
     && cmake --install bcg729/build && ldconfig
 
-# 2) libre (base di baresip)
-RUN git clone --depth 1 https://github.com/baresip/re.git \
+# 2) libre (base di baresip), con patch SPERIMENTALE sull'address family 0 nell'ACK routing
+RUN git clone --depth 1 https://github.com/baresip/re.git
+COPY patch_sa_af.py /tmp/patch_sa_af.py
+RUN python3 /tmp/patch_sa_af.py \
     && cmake -S re -B re/build -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build re/build -j"$(nproc)" \
     && cmake --install re/build && ldconfig
