@@ -1,25 +1,38 @@
 #!/usr/bin/env python3
-"""SPERIMENTALE — patch a libre (src/sa/sa.c): quando sa_set_port riceve un indirizzo con
-address family = 0 (AF_UNSPEC), forza AF_INET invece di limitarsi a stampare un warning.
+"""Patch a libre (src/sip/request.c): accetta le route in schema "sips" (SIP over TLS) oltre a
+"sip" quando invia una richiesta in-dialog (es. l'ACK del 200 OK).
 
-Scopo: verificare se l'avviso "sa_set_port: no af 0 (port 443)" è concatenato alla caduta della
-chiamata on-demand verso il cloud BTicino, o se è solo rumore cosmetico.
+PERCHÉ: il proxy Flexisip del cloud BTicino inserisce Record-Route in schema sips:
+(<sips:host:443;lr>). Il libre originale, in sip_request_alloc, fa:
+        if (pl_strcasecmp(&route->scheme, "sip"))
+                return ENOSYS;
+cioè accetta SOLO "sip" e rifiuta "sips" con ENOSYS ("Function not implemented"). È questo il
+motivo per cui la chiamata on-demand cade subito dopo il 200 OK: baresip non riesce a mandare
+l'ACK attraverso la route sips. La patch accetta anche "sips" e, in quel caso, forza il trasporto
+TLS.
 
-Robusto: individua la funzione con una regex (tollerante a spaziatura/indentazione) e inserisce il
-guard subito dopo l'apertura. Idempotente. Se non trova la funzione NON blocca il build: stampa un
-avviso ed esce con successo (così un cambio futuro in re non fa fallire tutto)."""
+Robusto (regex, tollerante a spaziatura/versione), idempotente, non bloccante se non trova il punto."""
 import re
 import sys
 
-PATH = "/src/re/src/sa/sa.c"
-MARK = "PATCH SPERIMENTALE BTicino"
+PATH = "/src/re/src/sip/request.c"
+MARK = "PATCH BTicino sips-route"
 
-GUARD = (
-    "\n\t/* {mark}/Flexisip: se la famiglia e' 0 (hostname non risolto nel\n"
-    "\t   Record-Route), forza AF_INET invece di scartare l'operazione. */\n"
-    "\tif (sa && sa->u.sa.sa_family == 0)\n"
-    "\t\tsa->u.sa.sa_family = AF_INET;\n"
+# accetta sip OPPURE sips; se sips e nessun trasporto imposto dal chiamante -> TLS
+REPLACEMENT = (
+    "if (pl_strcasecmp(&route->scheme, \"sip\") &&\n"
+    "\t    pl_strcasecmp(&route->scheme, \"sips\"))  /* {mark} */\n"
+    "\t\treturn ENOSYS;\n"
+    "\n"
+    "\tif (!pl_strcasecmp(&route->scheme, \"sips\") && tp == SIP_TRANSP_NONE)\n"
+    "\t\ttp = SIP_TRANSP_TLS;"
 ).format(mark=MARK)
+
+# il blocco originale: if (pl_strcasecmp(&route->scheme, "sip")) return ENOSYS;
+PATTERN = re.compile(
+    r'if\s*\(\s*pl_strcasecmp\(\s*&route->scheme\s*,\s*"sip"\s*\)\s*\)\s*'
+    r'return\s+ENOSYS\s*;'
+)
 
 
 def main():
@@ -29,19 +42,14 @@ def main():
         print(f"AVVISO: {PATH} non trovato, salto la patch (non bloccante)")
         return
     if MARK in s:
-        print("patch sa_af gia' presente, salto")
+        print("patch sips-route gia' presente, salto")
         return
-
-    # trova l'inizio del corpo di sa_set_port: "void sa_set_port(...)" seguito da "{"
-    m = re.search(r"void\s+sa_set_port\s*\([^)]*\)\s*\{", s)
-    if not m:
-        print("AVVISO: funzione sa_set_port non trovata, salto la patch (non bloccante)")
+    s2, n = PATTERN.subn(REPLACEMENT, s, count=1)
+    if n == 0:
+        print("AVVISO: punto per la patch sips-route non trovato, salto (non bloccante)")
         return
-
-    insert_at = m.end()  # subito dopo la parentesi graffa di apertura
-    patched = s[:insert_at] + GUARD + s[insert_at:]
-    open(PATH, "w").write(patched)
-    print("patch sa_af applicata a sa.c")
+    open(PATH, "w").write(s2)
+    print("patch sips-route applicata a request.c")
 
 
 if __name__ == "__main__":
