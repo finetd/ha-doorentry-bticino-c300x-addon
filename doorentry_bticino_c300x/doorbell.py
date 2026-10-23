@@ -28,6 +28,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 SNAPSHOT_PATH = os.environ.get("SNAPSHOT_PATH", "/share/doorentry_bticino_c300x/doorbell.jpg")
 HA_EVENT = os.environ.get("HA_EVENT", "doorentry_bticino_c300x_ring")
 SNAPSHOT_DELAY = float(os.environ.get("SNAPSHOT_DELAY", "2.0"))
+# quanti tentativi di snapshot (~1s l'uno): finestra ampia per l'autoaccensione, che può
+# impiegare diversi secondi prima di trasmettere il video
+CAPTURE_ATTEMPTS = int(os.environ.get("CAPTURE_ATTEMPTS", "25"))
 WORKDIR = os.environ.get("WORKDIR", "/share/doorentry_bticino_c300x")
 CAPTURE_MODE = os.environ.get("CAPTURE_MODE", "notify_only")
 FALLBACK_DELAY = float(os.environ.get("FALLBACK_DELAY", "20"))
@@ -209,7 +212,10 @@ def capture_snapshot():
     t0 = time.time()
     ok = False
     try:
-        for attempt in range(6):          # ~6 tentativi su diversi secondi
+        # In autoaccensione il posto esterno accende la telecamera e inizia a trasmettere con
+        # qualche secondo di ritardo (l'audio stesso parte dopo ~5s): diamo una finestra ampia.
+        # capture_snapshot esce comunque appena arriva il primo fotogramma valido.
+        for attempt in range(CAPTURE_ATTEMPTS):
             send_cmd("snapshot")
             time.sleep(1.0)
             png = _newest_png_after(t0)
