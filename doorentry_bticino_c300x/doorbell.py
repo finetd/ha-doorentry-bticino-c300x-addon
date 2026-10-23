@@ -546,8 +546,16 @@ def main():
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
     def pump():
-        for line in proc.stdout:
-            print("[baresip]", line.decode("utf-8", "replace").rstrip(), flush=True)
+        for raw in proc.stdout:
+            line = raw.decode("utf-8", "replace").rstrip()
+            # la registrazione compare subito nei log ("200 Registration successful"),
+            # prima che arrivi l'evento REGISTER_OK: così lo stato è corretto già all'avvio
+            if "Registration successful" in line:
+                STATE["registered"] = True
+                STATE["last_register"] = time.time()
+            elif "Register:" in line and ("failed" in line or "error" in line.lower()):
+                STATE["registered"] = False
+            print("[baresip]", line, flush=True)
     threading.Thread(target=pump, daemon=True).start()
 
     try:
