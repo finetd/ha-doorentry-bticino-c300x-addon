@@ -77,12 +77,14 @@ static int au_decupd(struct aufilt_dec_st **stp, void **ctx, const struct aufilt
                      struct aufilt_prm *prm, const struct audio *au)
 {
 	(void)ctx; (void)au;
+	info("recorder: AU_DECUPD chiamato (srate=%u ch=%u)\n",
+	     prm ? prm->srate : 0, prm ? prm->ch : 0);
 	if (*stp) return 0;
 	struct rec_dec *st = mem_zalloc(sizeof(*st), NULL);
 	if (!st) return ENOMEM;
 	st->af.af = af;
 	pthread_mutex_lock(&R.lock);
-	if (!R.srate) { R.srate = prm->srate; R.ch = prm->ch; }
+	if (!R.srate && prm) { R.srate = prm->srate; R.ch = prm->ch; }
 	pthread_mutex_unlock(&R.lock);
 	*stp = &st->af;
 	return 0;
@@ -91,6 +93,12 @@ static int au_decupd(struct aufilt_dec_st **stp, void **ctx, const struct aufilt
 static int au_dec(struct aufilt_dec_st *st, struct auframe *af)
 {
 	(void)st;
+	static int au_dec_first = 1;
+	if (au_dec_first) {
+		au_dec_first = 0;
+		info("recorder: PRIMO au_dec INVOCATO! af=%p sampc=%zu fmt=%d active=%d\n",
+		     af, af ? af->sampc : 0, af ? (int)af->fmt : -1, R.active);
+	}
 	if (!af || !af->sampv || !af->sampc) return 0;
 	pthread_mutex_lock(&R.lock);
 	if (R.active && R.wav) {
