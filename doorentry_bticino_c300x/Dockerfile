@@ -29,8 +29,10 @@ RUN git clone --depth 1 https://github.com/BelledonneCommunications/bcg729.git \
 RUN git clone --depth 1 https://github.com/baresip/re.git
 COPY patch_sips_route.py /tmp/patch_sips_route.py
 COPY patch_sa_af.py /tmp/patch_sa_af.py
+COPY patch_call_sdp.py /tmp/patch_call_sdp.py
 RUN python3 /tmp/patch_sips_route.py \
     && python3 /tmp/patch_sa_af.py \
+    && python3 /tmp/patch_call_sdp.py \
     && cmake -S re -B re/build -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build re/build -j"$(nproc)" \
     && cmake --install re/build && ldconfig
