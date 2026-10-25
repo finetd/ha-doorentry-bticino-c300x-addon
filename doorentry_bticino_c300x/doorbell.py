@@ -254,15 +254,29 @@ def _run_outgoing_record():
     except Exception as e:
         log(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
 
-    log(f"muxing MP4 con ffmpeg: {mp4}")
+    # muxing robusto: se un flusso manca (video non arrivato dal citofono, o audio zero),
+    # salviamo comunque in MP4 quello che c'è, senza dare errore a ffmpeg
+    y4m_ok = os.path.getsize(y4m) > 100   # almeno l'header Y4M (~40 byte) + 1 frame
+    wav_ok = audio_bytes > 1000           # almeno ~0.03s di audio
+    log(f"muxing MP4 con ffmpeg: {mp4} (video_ok={y4m_ok}, audio_ok={wav_ok})")
     try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error",
-             "-r", f"{fps_real:.3f}", "-i", y4m,
-             "-i", wav,
-             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-             "-c:a", "aac", "-b:a", "64k", mp4],   # senza -shortest: teniamo tutto
-            check=True, timeout=120)
+        if y4m_ok and wav_ok:
+            cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                   "-r", f"{fps_real:.3f}", "-i", y4m, "-i", wav,
+                   "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                   "-c:a", "aac", "-b:a", "64k", mp4]
+        elif y4m_ok:
+            log("audio mancante o troppo corto, salvo MP4 solo video")
+            cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                   "-r", f"{fps_real:.3f}", "-i", y4m,
+                   "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", mp4]
+        elif wav_ok:
+            log("video mancante (il citofono non ha mandato), salvo MP4 solo audio")
+            cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                   "-i", wav, "-c:a", "aac", "-b:a", "64k", mp4]
+        else:
+            log("niente audio ne' video, muxing annullato"); return
+        subprocess.run(cmd, check=True, timeout=120)
         log(f"registrazione salvata: {mp4}")
     except Exception as e:
         log(f"ffmpeg fallito: {e}")
