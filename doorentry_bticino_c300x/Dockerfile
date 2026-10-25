@@ -58,18 +58,18 @@ RUN git clone --depth 1 https://github.com/juha-h/libbaresip-android.git lba \
     && ls -l "$MODDIR/g729.so"
 
 # 5) moduli custom:
-#    - owncmd: invia i frame OpenWebNet (segreteria, luce, apri-porta) come SIP MESSAGE
-#    - recorder: registra audio+video in file WAV e Y4M (poi ffmpeg mixa in MP4)
-COPY owncmd.c   /tmp/owncmd.c
-COPY recorder.c /tmp/recorder.c
+#    - owncmd:      invia i frame OpenWebNet (segreteria, luce, apri-porta) come SIP MESSAGE
+#    - recorder:    registra audio+video in file WAV e Y4M (poi ffmpeg mixa in MP4)
+#    - devaddr_sdp: aggiunge "DEVADDR" nell'SDP INVITE outgoing (necessario per l'audio)
+COPY owncmd.c      /tmp/owncmd.c
+COPY recorder.c    /tmp/recorder.c
+COPY devaddr_sdp.c /tmp/devaddr_sdp.c
 RUN MODDIR=$(dirname "$(find /usr/local/lib -name account.so -path '*baresip*' | head -1)") \
-    && gcc -fPIC -shared -O2 \
-         -I/usr/local/include -I/usr/local/include/re -I/src/baresip/include \
-         -o "$MODDIR/owncmd.so" /tmp/owncmd.c \
-    && gcc -fPIC -shared -O2 \
-         -I/usr/local/include -I/usr/local/include/re -I/src/baresip/include \
-         -o "$MODDIR/recorder.so" /tmp/recorder.c -lpthread \
-    && ls -l "$MODDIR/owncmd.so" "$MODDIR/recorder.so"
+    && INC="-I/usr/local/include -I/usr/local/include/re -I/src/baresip/include" \
+    && gcc -fPIC -shared -O2 $INC -o "$MODDIR/owncmd.so"      /tmp/owncmd.c \
+    && gcc -fPIC -shared -O2 $INC -o "$MODDIR/recorder.so"    /tmp/recorder.c -lpthread \
+    && gcc -fPIC -shared -O2 $INC -o "$MODDIR/devaddr_sdp.so" /tmp/devaddr_sdp.c \
+    && ls -l "$MODDIR/owncmd.so" "$MODDIR/recorder.so" "$MODDIR/devaddr_sdp.so"
 
 COPY run.sh /run.sh
 COPY provision.py /provision.py
