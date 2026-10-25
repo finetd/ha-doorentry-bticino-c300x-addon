@@ -344,7 +344,7 @@ dns_getaddrinfo         yes
 audio_codecs            g729,telephone-event
 video_codecs            h264
 {add_mod_lines()}
-audio_player            aubridge,nil
+audio_player            recplay,nil
 audio_source            aubridge,nil
 video_source            fakevideo,nil
 video_display           fakevideo,nil
