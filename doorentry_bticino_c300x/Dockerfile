@@ -29,20 +29,21 @@ RUN git clone --depth 1 https://github.com/BelledonneCommunications/bcg729.git \
 RUN git clone --depth 1 https://github.com/baresip/re.git
 COPY patch_sips_route.py /tmp/patch_sips_route.py
 COPY patch_sa_af.py /tmp/patch_sa_af.py
-COPY patch_call_sdp.py /tmp/patch_call_sdp.py
 RUN python3 /tmp/patch_sips_route.py \
     && python3 /tmp/patch_sa_af.py \
-    && python3 /tmp/patch_call_sdp.py \
     && cmake -S re -B re/build -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build re/build -j"$(nproc)" \
     && cmake --install re/build && ldconfig
 
-# 3) baresip, con micro-patch che aggiunge l'attributo SDP di sessione "DEVADDR" (letto
-#    dall'ambiente) a ogni chiamata: il posto esterno lo richiede per le chiamate uscenti
-#    (cattura on-demand), altrimenti risponde 488 Not Acceptable Here.
+# 3) baresip, con due micro-patch:
+#    - patch_devaddr: aggiunge l'attributo SDP di sessione "DEVADDR" (letto dall'ambiente)
+#      per il frame OpenWebNet dalle chiamate SIP MESSAGE.
+#    - patch_call_sdp: espone call_sdp() come API pubblica (serve al modulo devaddr_sdp).
 RUN git clone --depth 1 https://github.com/baresip/baresip.git
-COPY patch_devaddr.py /tmp/patch_devaddr.py
+COPY patch_devaddr.py  /tmp/patch_devaddr.py
+COPY patch_call_sdp.py /tmp/patch_call_sdp.py
 RUN python3 /tmp/patch_devaddr.py \
+    && python3 /tmp/patch_call_sdp.py \
     && cmake -S baresip -B baresip/build -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build baresip/build -j"$(nproc)" \
     && cmake --install baresip/build && ldconfig
