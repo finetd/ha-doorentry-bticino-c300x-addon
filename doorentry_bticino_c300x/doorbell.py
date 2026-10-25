@@ -505,6 +505,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "basepath": base, "mp4": mp4})
             peer = f"sip:c300x@{gw}"
             log(f"registrazione on-demand: {duration}s -> {mp4}")
+            # audio=sendrecv come fa l'app ufficiale. Il modulo devaddr_sdp aggiunge
+            # l'attributo DEVADDR all'SDP INVITE, cosi' il citofono ci riconosce e invia audio.
             send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
             self._send(200, (f"registrazione avviata ({duration}s), file: {mp4}").encode())
         elif path == "/cmd/capture":
