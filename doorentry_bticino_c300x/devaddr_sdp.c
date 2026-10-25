@@ -1,74 +1,55 @@
-/**
- * devaddr_sdp.c  Modulo baresip che aggiunge l'attributo SDP "DEVADDR" nelle INVITE uscenti.
- *
- * L'app ufficiale BTicino Door Entry aggiunge sempre `a=DEVADDR:<dev><addr>` all'SDP INVITE
- * verso il posto esterno (es: "a=DEVADDR:10" per dev=1 address=0). Senza questo attributo,
- * il citofono C300X risponde ma non invia audio (il video sì, con il trucco sendrecv).
- *
- * Config via env var:
- *   DOORENTRY_SDP_DEVADDR   es: "10", "20"  (default "10")
- */
-#include <stdlib.h>
-#include <string.h>
-#include <re.h>
-#include <baresip.h>
+#!/usr/bin/env python3
+"""
+Aggiunge in baresip un accessor pubblico `call_sdp()` che ritorna il campo privato
+`struct sdp_session *sdp` della struct call. Serve al modulo devaddr_sdp per aggiungere
+attributi SDP a livello di SESSIONE (come fa l'app ufficiale con linphone), non solo a
+livello di media.
 
+Idempotente: se la patch è già applicata, esce senza fare nulla.
+"""
+import os, sys
 
-static char g_devaddr[32] = "10";
+ROOT = "/src/baresip"
+HDR  = os.path.join(ROOT, "include", "baresip.h")
+SRC  = os.path.join(ROOT, "src", "call.c")
 
-
-static void inject_devaddr(struct call *call)
+HDR_LINE = "struct sdp_session *call_sdp(const struct call *call);\n"
+SRC_FUNC = """
+/* Added by patch_call_sdp.py: public accessor to the private sdp_session field */
+struct sdp_session *call_sdp(const struct call *call)
 {
-	if (!call) return;
-
-	struct audio *au = call_audio(call);
-	if (au) {
-		struct sdp_media *m = stream_sdpmedia(audio_strm(au));
-		if (m) sdp_media_set_lattr(m, true, "DEVADDR", "%s", g_devaddr);
-	}
-	struct video *vi = call_video(call);
-	if (vi) {
-		struct sdp_media *m = stream_sdpmedia(video_strm(vi));
-		if (m) sdp_media_set_lattr(m, true, "DEVADDR", "%s", g_devaddr);
-	}
-	info("devaddr_sdp: aggiunto DEVADDR=%s all'SDP uscente\n", g_devaddr);
+	return call ? call->sdp : NULL;
 }
 
+"""
 
-static void event_handler(enum bevent_ev ev, struct bevent *event, void *arg)
-{
-	(void)arg;
-	if (ev != BEVENT_CALL_LOCAL_SDP) return;
-	/* param "offer" = SDP outgoing nostro, "answer" = risposta a un INVITE in arrivo */
-	const char *txt = bevent_get_text(event);
-	if (!txt || strcmp(txt, "offer") != 0) return;
-	inject_devaddr(bevent_get_call(event));
-}
+def patch_header():
+    with open(HDR) as f:
+        c = f.read()
+    if "call_sdp(const struct call" in c:
+        print("patch_call_sdp: header gia' patchato"); return
+    # inseriamo subito dopo call_video declaration
+    anchor = "struct video *call_video(const struct call *call);"
+    if anchor not in c:
+        print("patch_call_sdp: ancora in header non trovata, salto", file=sys.stderr); return
+    c = c.replace(anchor, anchor + "\n" + HDR_LINE.rstrip())
+    with open(HDR, "w") as f: f.write(c)
+    print("patch_call_sdp: header patchato")
 
+def patch_source():
+    with open(SRC) as f:
+        c = f.read()
+    if "call_sdp(const struct call" in c:
+        print("patch_call_sdp: sorgente gia' patchato"); return
+    # Inseriamo prima della fine del file (una funzione pubblica tipica è alla fine)
+    # cerchiamo una funzione pubblica di call come ancora
+    anchor = "struct audio *call_audio(const struct call *call)"
+    if anchor not in c:
+        print("patch_call_sdp: ancora in sorgente non trovata, salto", file=sys.stderr); return
+    c = c.replace(anchor, SRC_FUNC + anchor)
+    with open(SRC, "w") as f: f.write(c)
+    print("patch_call_sdp: sorgente patchato")
 
-static int module_init(void)
-{
-	const char *v = getenv("DOORENTRY_SDP_DEVADDR");
-	if (v && *v) {
-		strncpy(g_devaddr, v, sizeof(g_devaddr) - 1);
-		g_devaddr[sizeof(g_devaddr) - 1] = 0;
-	}
-	int err = bevent_register(event_handler, NULL);
-	if (err) {
-		warning("devaddr_sdp: bevent_register fallito: %d\n", err);
-		return err;
-	}
-	info("devaddr_sdp: modulo caricato (DEVADDR=%s)\n", g_devaddr);
-	return 0;
-}
-
-static int module_close(void)
-{
-	bevent_unregister(event_handler);
-	return 0;
-}
-
-
-const struct mod_export DECL_EXPORTS(devaddr_sdp) = {
-	"devaddr_sdp", "application", module_init, module_close
-};
+if __name__ == "__main__":
+    patch_header()
+    patch_source()
