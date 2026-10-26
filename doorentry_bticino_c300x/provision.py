@@ -352,6 +352,9 @@ ctrl_tcp_listen         127.0.0.1:4444
 # niente tono di chiamata: senza un vero dispositivo audio il ringback va in errore (ENOSYS)
 # e abbatteva la chiamata on-demand prima dello snapshot
 ringback_disabled       yes
+# Impersona l'User-Agent dell'app ufficiale BTicino Door Entry: il citofono potrebbe
+# filtrare i client sconosciuti negando audio. L'app usa setUserAgent("VctLinphoneService", version).
+sip_useragent           {os.environ.get("DOORENTRY_UA", "VctLinphoneService/2.0.0")}
 """
     with open(os.path.join(BARESIP_DIR, "config"), "w") as f:
         f.write(config)
