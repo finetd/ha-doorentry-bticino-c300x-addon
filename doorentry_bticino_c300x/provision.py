@@ -475,6 +475,17 @@ def main():
             log(f"download configurazione fallito (tentativo {attempt + 1}/3): {e}")
             time.sleep(3)
     if conf_files:
+        # Salva tutti i file di configurazione in /data per diagnostica
+        try:
+            os.makedirs("/data/conf", exist_ok=True)
+            for name, data in conf_files.items():
+                safe = name.replace("/", "_").replace("..", "_")
+                with open(f"/data/conf/{safe}", "wb") as f:
+                    f.write(data if isinstance(data, bytes) else data.encode())
+            log(f"configurazione salvata in /data/conf/ ({len(conf_files)} file)")
+        except OSError as e:
+            log(f"salvataggio conf fallito: {e}")
+
         if not devaddr and "conf.xml" in conf_files:
             devaddr = parse_devaddr(conf_files["conf.xml"])
             log(f"DEVADDR ricavato: {devaddr}")
