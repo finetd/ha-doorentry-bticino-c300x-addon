@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.30.3
+
+- `last.mp4` ora e' un symlink all'ultima registrazione in assoluto, non solo all'ultima
+  on-demand. Si aggiorna sia dopo `/cmd/record` sia dopo fallback_video. Utile per card e
+  automation che vogliono puntare a un path fisso senza sapere il nome timestampato
+  (es: `platform: ffmpeg` con `input: /share/doorentry_bticino_c300x/recordings/last.mp4`).
+- Lo stesso vale per `last.jpg` (thumbnail). Entrambi i symlink sono esclusi da
+  `GET /recordings` per non apparire duplicati nel browser Media di HA.
+
 ## 1.30.2
 
 - Al termine del muxing MP4 viene estratta anche una thumbnail JPG (primo frame) accanto
