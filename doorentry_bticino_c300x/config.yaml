@@ -3,7 +3,7 @@ description: >-
   Rileva lo squillo del videocitofono BTicino/Legrand Classe 300X (app Door Entry) e cattura
   uno screenshot. Inserisci solo email e password dell'app Door Entry: l'add-on crea da solo
   l'interno dedicato, i certificati e la configurazione. Senza root, senza firmware modificato.
-version: "1.19.0-exp"
+version: "1.20.1-exp"
 slug: doorentry_bticino_c300x
 init: false
 arch:
@@ -20,6 +20,7 @@ options:
   snapshot_delay: 2.0
   capture_mode: "notify_only"
   fallback_delay: 20
+  fallback_record_duration: 30
   http_port: 8099
   webhook_id: "doorentry_bticino_c300x"
   ha_base_url: "http://homeassistant:8123"
@@ -32,8 +33,9 @@ schema:
   snapshot_path: str
   ha_event: str
   snapshot_delay: float
-  capture_mode: "list(notify_only|fallback_snapshot)"
+  capture_mode: "list(notify_only|fallback_snapshot|fallback_video)"
   fallback_delay: int
+  fallback_record_duration: int(5,120)
   http_port: port
   webhook_id: str?
   ha_base_url: str?
