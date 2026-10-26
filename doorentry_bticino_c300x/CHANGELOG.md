@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.30.1
+
+- Nuovi endpoint HTTP: `GET /recordings` (lista MP4 con metadati) e
+  `GET /recordings/<nome>` (serve il singolo file). Blocca path traversal.
+- Il campo `last_recording` (nome, size, mtime) ora e' incluso in `/state` per
+  l'integrazione, che espone un sensor "Ultima registrazione".
+
 ## 1.30.0
 
 Prima release stabile.
