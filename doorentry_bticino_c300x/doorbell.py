@@ -505,9 +505,12 @@ class Handler(BaseHTTPRequestHandler):
                                     "basepath": base, "mp4": mp4})
             peer = f"sip:c300x@{gw}"
             log(f"registrazione on-demand: {duration}s -> {mp4}")
-            # audio=sendrecv come fa l'app ufficiale. Il modulo devaddr_sdp aggiunge
-            # l'attributo DEVADDR all'SDP INVITE, cosi' il citofono ci riconosce e invia audio.
-            send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
+            # Esattamente come fa l'app ufficiale: audio=sendrecv video=recvonly.
+            # Il DEVADDR nell'SDP (iniettato dal modulo devaddr_sdp) ci autentica.
+            # Senza DEVADDR corretto, video=recvonly non riceveva nemmeno video (bug noto
+            # nelle versioni precedenti); ora che DEVADDR funziona, questa combinazione
+            # dovrebbe essere accettata completamente.
+            send_cmd("dialdir", f"{peer} audio=sendrecv video=recvonly")
             self._send(200, (f"registrazione avviata ({duration}s), file: {mp4}").encode())
         elif path == "/cmd/capture":
             # SPERIMENTALE: chiama il posto esterno e cattura (per testare la patch sa_af)
