@@ -1,22 +1,29 @@
 # Changelog
 
-## 1.13.1
-- Stato "Connesso" corretto fin dall'avvio: oltre all'evento REGISTER_OK, l'add-on rileva la
-  registrazione dalla riga di log "Registration successful", che compare subito (prima si vedeva
-  "disconnesso" per ~9 minuti, fino al primo keepalive).
+## 1.0.0
 
-## 1.13.0
-- Nuovo sensore di connettività: l'add-on traccia lo stato della registrazione SIP al cloud
-  (eventi REGISTER_OK/REGISTER_FAIL) con timeout sul keepalive, ed espone "connected" in /state.
-  L'integrazione aggiunge il binary_sensor "Connesso" (device class connectivity).
+Prima release stabile.
 
-## 1.12.0
-Prima versione pubblica. Funzionalità principali:
-- Provisioning automatico da sole email e password dell'app Door Entry: l'add-on crea un interno
-  SIP dedicato, ottiene password e certificati, e scopre la configurazione dell'impianto.
-- Notifica allo squillo verso Home Assistant (via webhook, senza token).
-- Cattura di uno screenshot dell'ingresso in modalità `fallback_snapshot` (quando nessuno risponde
-  entro `fallback_delay` secondi) oppure solo notifica in `notify_only`.
-- Discovery automatico delle serrature dalla configurazione (apertura per ciascuna).
-- Comandi: apertura serrature, luce scale, segreteria (risponditore).
-- Pagina di stato web sulla porta 8099 e API per l'integrazione Home Assistant.
+### Funzionalita'
+
+- Provisioning automatico tramite credenziali del portale `myhomeweb.com`: scarica
+  configurazione cifrata, estrae certificati, costruisce account SIP.
+- Registrazione SIP sul cloud BTicino via Flexisip (TLS mutuo, SRTP).
+- Discovery automatico delle serrature dal `conf.xml` dell'impianto.
+- Eventi su Home Assistant alla pressione del campanello.
+- Pagina di stato HTML su porta 8099 con controlli (segreteria, serrature, luci, cattura).
+- Entita' esposte all'integrazione: binary_sensor di stato chiamata, camera dello
+  snapshot, button serrature e luci dinamici, switch segreteria, button cattura
+  istantanea, button registrazione on-demand.
+- Comandi HTTP: `/`, `/state`, `/snapshot`, `/info`, `/cmd/light`,
+  `/cmd/answering_on`, `/cmd/answering_off`, `/cmd/lock/<PE>`, `/cmd/raw`,
+  `/cmd/capture`, `/cmd/record?duration=N`, `/debug/conf`.
+- Modalita' `capture_mode`:
+    - `notify_only` (default): solo evento HA, mai risponde
+    - `fallback_snapshot`: dopo `fallback_delay` secondi senza risposta, accetta e cattura foto
+    - `fallback_video`: dopo `fallback_delay` secondi senza risposta, accetta e registra
+      audio+video per `fallback_record_duration` secondi
+- Registrazione on-demand video via `/cmd/record` (il citofono BTicino limita l'invio
+  dell'audio in questa modalita'; audio funziona nelle chiamate reali in arrivo,
+  usate da `fallback_video`).
+- Opzione `debug_logs` per abilitare log diagnostici dettagliati on-demand.
