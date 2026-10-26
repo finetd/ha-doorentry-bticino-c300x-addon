@@ -13,7 +13,8 @@ export FALLBACK_DELAY=$(jq -r '.fallback_delay // 10' $CONFIG)
 export HTTP_PORT=$(jq -r '.http_port' $CONFIG)
 export WEBHOOK_ID=$(jq -r '.webhook_id // ""' $CONFIG)
 export HA_BASE_URL=$(jq -r '.ha_base_url // "http://homeassistant:8123"' $CONFIG)
-export DOORENTRY_SDP_DEVADDR=$(jq -r '.sdp_devaddr // "10"' $CONFIG)
+export DOORENTRY_SDP_DEVADDR=$(jq -r '.sdp_devaddr // "20"' $CONFIG)
+export DOORENTRY_UA=$(jq -r '.sip_useragent // "VctLinphoneService/2.0.0"' $CONFIG)
 
 # cartella moduli baresip: prima /usr/local/lib (baresip compilato da noi), poi /usr/lib
 MODDIR=$(dirname "$(find /usr/local/lib /usr/lib -name 'account.so' -path '*baresip*' 2>/dev/null | head -1)")
