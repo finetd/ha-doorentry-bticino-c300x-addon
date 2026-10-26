@@ -13,6 +13,7 @@ export FALLBACK_DELAY=$(jq -r '.fallback_delay // 10' $CONFIG)
 export HTTP_PORT=$(jq -r '.http_port' $CONFIG)
 export WEBHOOK_ID=$(jq -r '.webhook_id // ""' $CONFIG)
 export HA_BASE_URL=$(jq -r '.ha_base_url // "http://homeassistant:8123"' $CONFIG)
+export FALLBACK_RECORD_DURATION=$(jq -r '.fallback_record_duration // 30' $CONFIG)
 export DOORENTRY_SDP_DEVADDR=$(jq -r '.sdp_devaddr // "20"' $CONFIG)
 export DOORENTRY_UA=$(jq -r '.sip_useragent // "VctLinphoneService/2.0.0"' $CONFIG)
 
