@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.30.2
+
+- Al termine del muxing MP4 viene estratta anche una thumbnail JPG (primo frame) accanto
+  al video, usata dall'integrazione per mostrare l'anteprima nella Camera entity.
+- Endpoint `/recordings/<nome>` ora serve sia MP4 che JPG con Content-Type corretto.
+
 ## 1.30.1
 
 - Nuovi endpoint HTTP: `GET /recordings` (lista MP4 con metadati) e
