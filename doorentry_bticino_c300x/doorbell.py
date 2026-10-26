@@ -489,17 +489,32 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(info).encode(), "application/json")
         elif path == "/debug/conf":
             # Mostra conf.xml e i candidati DEVADDR per diagnostica
+            # Cerca in /data/conf/ (dove provision.py salva) oppure /data/
+            conf_path = None
+            for p in ("/data/conf/conf.xml", "/data/conf.xml"):
+                if os.path.exists(p):
+                    conf_path = p; break
+            if not conf_path:
+                try:
+                    files = os.listdir("/data/conf")
+                except OSError:
+                    files = []
+                self._send(404,
+                    (f"conf.xml non trovato. File in /data/conf/: {files}\n"
+                     "Riavvia l'add-on per far rifare il provisioning e salvare la conf.").encode())
+                return
             try:
-                with open("/data/conf.xml") as f:
+                with open(conf_path) as f:
                     conf = f.read()
             except OSError as e:
-                self._send(404, f"conf.xml non leggibile: {e}".encode()); return
-            # Estrai p_default, dev, address, posti interni / esterni
+                self._send(500, f"errore lettura: {e}".encode()); return
+            # Estrai tutti gli attributi significativi
             import re as _re
             candidati = []
             for m in _re.finditer(r'(dev|p_default|address|sysaddress|where)="([^"]+)"', conf):
                 candidati.append(f"{m.group(1)}={m.group(2)}")
-            body = ("# Candidati DEVADDR (prova questi valori in sdp_devaddr):\n"
+            body = (f"# File usato: {conf_path}\n"
+                    "# Candidati DEVADDR (prova questi valori nell'opzione sdp_devaddr):\n"
                     + "\n".join(sorted(set(candidati)))
                     + "\n\n# conf.xml completo:\n" + conf)
             self._send(200, body.encode(), "text/plain; charset=utf-8")
