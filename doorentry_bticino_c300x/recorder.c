@@ -42,6 +42,7 @@ static struct {
 	int      y4m_header_done;
 	uint32_t vframes;
 	uint32_t aframes;
+	uint32_t aframes_nonzero;   /* quanti frame avevano campioni non-zero  */
 	char basepath[512];
 } R = { .lock = PTHREAD_MUTEX_INITIALIZER };
 
@@ -122,12 +123,21 @@ static void *auplay_thread(void *data)
 		             st->srate, st->ch);
 		st->wh(&af, st->arg);   /* pull: baresip riempie buf             */
 
+		/* misura: quanti campioni sono non-zero? se tutti zero, il citofono
+		   non sta inviando audio (aubuf vuoto -> wh() lascia il buf a zero) */
+		int nonzero = 0;
+		int16_t peak = 0;
+		for (size_t i = 0; i < nsamp * st->ch; i++) {
+			int16_t v = buf[i];
+			if (v != 0) nonzero++;
+			int16_t a = v < 0 ? -v : v;
+			if (a > peak) peak = a;
+		}
+
 		pthread_mutex_lock(&R.lock);
 		if (R.active && R.wav) {
 			R.aframes++;
-			if (R.aframes <= 3 || R.aframes % 100 == 0)
-				info("recorder: audio write #%u, %zu byte\n",
-				     R.aframes, bytes);
+			if (nonzero) R.aframes_nonzero++;
 			if (fwrite(buf, 1, bytes, R.wav) == bytes)
 				R.wav_data_bytes += (uint32_t)bytes;
 		}
@@ -208,8 +218,6 @@ static int vid_dec(struct vidfilt_dec_st *st, struct vidframe *frame, uint64_t *
 			info("recorder: primo frame video %dx%d, header Y4M scritto\n", w, h);
 		}
 		R.vframes++;
-		if (R.vframes <= 5 || R.vframes % 25 == 0)
-			info("recorder: frame video #%u (%dx%d)\n", R.vframes, w, h);
 		fputs("FRAME\n", R.y4m);
 		int uv_w = w / 2, uv_h = h / 2;
 		for (int y = 0; y < h; y++)
@@ -273,6 +281,7 @@ static int cmd_start(struct re_printf *pf, void *arg)
 	R.y4m_header_done  = 0;
 	R.vframes          = 0;
 	R.aframes          = 0;
+	R.aframes_nonzero  = 0;
 	R.active           = 1;
 	pthread_mutex_unlock(&R.lock);
 	info("recorder: avviato, basepath=%s\n", R.basepath);
@@ -294,16 +303,19 @@ static int cmd_stop(struct re_printf *pf, void *arg)
 		fclose(R.wav); R.wav = NULL;
 	}
 	if (R.y4m) { fclose(R.y4m); R.y4m = NULL; }
-	uint32_t saved_bytes   = R.wav_data_bytes;
-	uint32_t saved_vframes = R.vframes;
-	uint32_t saved_aframes = R.aframes;
+	uint32_t saved_bytes      = R.wav_data_bytes;
+	uint32_t saved_vframes    = R.vframes;
+	uint32_t saved_aframes    = R.aframes;
+	uint32_t saved_nonzero    = R.aframes_nonzero;
 	R.wav_data_bytes   = 0;
 	R.y4m_header_done  = 0;
 	R.vframes          = 0;
 	R.aframes          = 0;
+	R.aframes_nonzero  = 0;
 	pthread_mutex_unlock(&R.lock);
-	return re_hprintf(pf, "recorder_stop: ok (%u byte audio in %u iter, %u frame video)\n",
-	                  saved_bytes, saved_aframes, saved_vframes);
+	return re_hprintf(pf, "recorder_stop: ok (%u byte audio in %u iter, %u con dati, "
+	                  "%u frame video)\n",
+	                  saved_bytes, saved_aframes, saved_nonzero, saved_vframes);
 }
 
 static const struct cmd cmdv[] = {
