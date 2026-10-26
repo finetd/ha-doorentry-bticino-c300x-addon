@@ -115,6 +115,31 @@ def log_debug(*a):
         print(time.strftime("%H:%M:%S"), "[debug]", *a, flush=True)
 
 
+def _list_recordings():
+    """Elenca i file MP4 nella directory recordings, piu' recenti prima."""
+    try:
+        files = []
+        for n in os.listdir(RECORDINGS_DIR):
+            if not n.endswith(".mp4"):
+                continue
+            full = os.path.join(RECORDINGS_DIR, n)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            files.append({"name": n, "size": st.st_size, "mtime": st.st_mtime})
+        files.sort(key=lambda x: x["mtime"], reverse=True)
+        return files
+    except OSError:
+        return []
+
+
+def _latest_recording():
+    """Info sull'ultima registrazione MP4 (nome, size, mtime) o None."""
+    items = _list_recordings()
+    return items[0] if items else None
+
+
 def _mark_ringing():
     """Segna lo stato 'sta suonando' e lo azzera dopo 20s (così l'integrazione non lo perde)."""
     global _ring_timer
@@ -507,6 +532,7 @@ class Handler(BaseHTTPRequestHandler):
                 "last_missed": STATE["last_missed"],
                 "snapshot_mtime": snap_mtime,
                 "capture_mode": CAPTURE_MODE,
+                "last_recording": _latest_recording(),
                 "plant_name": RT.get("plant_name"),
                 "plant_id": RT.get("plant_id"),
                 "gateway_id": RT.get("gateway_id"),
@@ -516,6 +542,25 @@ class Handler(BaseHTTPRequestHandler):
                 "locks": LOCKS,
             }
             self._send(200, json.dumps(st).encode(), "application/json")
+        elif path.startswith("/recordings/"):
+            # Serve un singolo file registrato (es: last.mp4, call-20261026-093558.mp4).
+            # Blocca escape dalla directory con nomi contenenti "/" o "..".
+            name = path[len("/recordings/"):]
+            if "/" in name or ".." in name or not name:
+                self._send(400, b"nome file non valido"); return
+            full = os.path.join(RECORDINGS_DIR, name)
+            if not os.path.exists(full) or not os.path.isfile(full):
+                self._send(404, b"registrazione non trovata"); return
+            try:
+                with open(full, "rb") as f:
+                    data = f.read()
+            except OSError as e:
+                self._send(500, f"errore lettura: {e}".encode()); return
+            self._send(200, data, "video/mp4")
+        elif path == "/recordings":
+            # Lista di tutte le registrazioni disponibili con metadati
+            items = _list_recordings()
+            self._send(200, json.dumps(items).encode(), "application/json")
         elif path == "/snapshot":
             try:
                 with open(SNAPSHOT_PATH, "rb") as f:
