@@ -296,6 +296,17 @@ def _mux_recording(base, mp4, dur):
             log("niente audio ne' video, muxing annullato"); return
         subprocess.run(cmd, check=True, timeout=120)
         log(f"registrazione salvata: {mp4}")
+        # Estrai la thumbnail (primo frame del MP4) per la Camera entity dell'integrazione.
+        # In caso di solo audio salta: senza video non c'e' una thumbnail possibile.
+        if y4m_ok:
+            jpg = mp4[:-4] + ".jpg"
+            try:
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                                "-i", mp4, "-frames:v", "1", "-q:v", "3", jpg],
+                               check=True, timeout=30)
+                log_debug(f"thumbnail salvata: {jpg}")
+            except Exception as e:
+                log_debug(f"thumbnail fallita (non critico): {e}")
     except Exception as e:
         log(f"ffmpeg fallito: {e}")
     finally:
@@ -543,20 +554,22 @@ class Handler(BaseHTTPRequestHandler):
             }
             self._send(200, json.dumps(st).encode(), "application/json")
         elif path.startswith("/recordings/"):
-            # Serve un singolo file registrato (es: last.mp4, call-20261026-093558.mp4).
-            # Blocca escape dalla directory con nomi contenenti "/" o "..".
+            # Serve un file registrato (MP4 o thumbnail JPG). Blocca path traversal.
             name = path[len("/recordings/"):]
             if "/" in name or ".." in name or not name:
                 self._send(400, b"nome file non valido"); return
             full = os.path.join(RECORDINGS_DIR, name)
             if not os.path.exists(full) or not os.path.isfile(full):
-                self._send(404, b"registrazione non trovata"); return
+                self._send(404, b"file non trovato"); return
             try:
                 with open(full, "rb") as f:
                     data = f.read()
             except OSError as e:
                 self._send(500, f"errore lettura: {e}".encode()); return
-            self._send(200, data, "video/mp4")
+            ctype = "video/mp4" if name.endswith(".mp4") else \
+                    "image/jpeg" if name.endswith(".jpg") else \
+                    "application/octet-stream"
+            self._send(200, data, ctype)
         elif path == "/recordings":
             # Lista di tutte le registrazioni disponibili con metadati
             items = _list_recordings()
