@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0
+## 1.30.0
 
 Prima release stabile.
 
