@@ -116,13 +116,17 @@ def log_debug(*a):
 
 
 def _list_recordings():
-    """Elenca i file MP4 nella directory recordings, piu' recenti prima."""
+    """Elenca i file MP4 nella directory recordings, piu' recenti prima.
+    I symlink (es: last.mp4 → call-X.mp4 dopo una chiamata persa) sono esclusi per
+    evitare duplicati nella lista: il file reale che e' puntato c'e' comunque."""
     try:
         files = []
         for n in os.listdir(RECORDINGS_DIR):
             if not n.endswith(".mp4"):
                 continue
             full = os.path.join(RECORDINGS_DIR, n)
+            if os.path.islink(full):
+                continue
             try:
                 st = os.stat(full)
             except OSError:
@@ -138,6 +142,25 @@ def _latest_recording():
     """Info sull'ultima registrazione MP4 (nome, size, mtime) o None."""
     items = _list_recordings()
     return items[0] if items else None
+
+
+def _refresh_last_alias(target_mp4):
+    """Aggiorna last.mp4 (e last.jpg) come symlink al file piu' recente.
+    Se target_mp4 e' gia' last.mp4 (chiamata on-demand), non facciamo nulla."""
+    last_mp4 = os.path.join(RECORDINGS_DIR, "last.mp4")
+    last_jpg = os.path.join(RECORDINGS_DIR, "last.jpg")
+    if os.path.abspath(target_mp4) == os.path.abspath(last_mp4):
+        return
+    target_jpg = target_mp4[:-4] + ".jpg"
+    for link, src in ((last_mp4, target_mp4), (last_jpg, target_jpg)):
+        try:
+            if os.path.lexists(link):
+                os.remove(link)
+            if os.path.exists(src):
+                # usiamo nomi relativi cosi' se qualcuno sposta la directory il link regge
+                os.symlink(os.path.basename(src), link)
+        except OSError as e:
+            log_debug(f"alias {link} non aggiornato: {e}")
 
 
 def _mark_ringing():
@@ -307,6 +330,10 @@ def _mux_recording(base, mp4, dur):
                 log_debug(f"thumbnail salvata: {jpg}")
             except Exception as e:
                 log_debug(f"thumbnail fallita (non critico): {e}")
+        # Aggiorna last.mp4 (e last.jpg) come alias all'ultima registrazione, qualunque
+        # sia la fonte (on-demand o chiamata persa). Utile per card dashboard, platform
+        # ffmpeg o automation che puntano a un path fisso.
+        _refresh_last_alias(mp4)
     except Exception as e:
         log(f"ffmpeg fallito: {e}")
     finally:
