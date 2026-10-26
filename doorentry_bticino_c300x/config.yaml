@@ -3,7 +3,7 @@ description: >-
   Rileva lo squillo del videocitofono BTicino/Legrand Classe 300X (app Door Entry) e cattura
   uno screenshot. Inserisci solo email e password dell'app Door Entry: l'add-on crea da solo
   l'interno dedicato, i certificati e la configurazione. Senza root, senza firmware modificato.
-version: "1.0.0"
+version: "1.30.0"
 slug: doorentry_bticino_c300x
 init: false
 arch:
