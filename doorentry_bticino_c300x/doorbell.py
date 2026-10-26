@@ -74,6 +74,11 @@ _ctrl_lock = threading.Lock()
 OUTGOING_CAPTURE = {"active": False}
 # registrazione on-demand: come la cattura, ma registra audio+video per N secondi
 OUTGOING_RECORD = {"active": False, "duration": 30, "basepath": "", "mp4": ""}
+# INCOMING_RECORD: registrazione automatica della chiamata entrante.
+# A differenza di OUTGOING_RECORD, il thread NON fa l'hangup finale (lascia che la chiamata
+# si chiuda naturalmente, cioe' quando l'utente risponde da altro posto interno o riaggancia).
+INCOMING_RECORD = {"active": False, "duration": 30, "basepath": "", "mp4": ""}
+FALLBACK_RECORD_DURATION = int(os.environ.get("FALLBACK_RECORD_DURATION", "30"))
 
 RECORDINGS_DIR = os.path.join(WORKDIR, "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
@@ -87,7 +92,8 @@ for _f in os.listdir(RECORDINGS_DIR):
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
          "missed": False, "missed_count": 0, "last_missed": 0.0,
-         "registered": False, "last_register": 0.0}
+         "registered": False, "last_register": 0.0,
+         "call_active": False}
 # se non arriva un REGISTER_OK entro questo tempo, consideriamo la connessione persa.
 # La registrazione si rinnova ~ogni 9 min (regint 600s): diamo margine.
 REGISTER_TIMEOUT = 800.0
@@ -215,49 +221,27 @@ def _cleanup_pngs():
                 pass
 
 
-def _run_outgoing_record():
-    """Esegue la registrazione: start, attesa, stop, muxing MP4 con ffmpeg, hangup."""
+def _mux_recording(base, mp4, dur):
+    """Mux dei file intermedi .wav/.y4m in un MP4 unico. Robusto se uno dei due manca."""
     import subprocess
-    base = OUTGOING_RECORD["basepath"]
-    mp4 = OUTGOING_RECORD["mp4"]
-    dur = OUTGOING_RECORD["duration"]
-    # dai qualche secondo al video per iniziare (keyframe + camera warm-up), come /cmd/capture
-    time.sleep(min(SNAPSHOT_DELAY, 2.0))
-    for _ in range(8):           # alcune FIR per far partire il video
-        send_cmd("keyframe")
-        time.sleep(0.5)
-    send_cmd("recorder_start", base)
-    log(f"registrazione in corso per {dur}s...")
-    time.sleep(dur)
-    send_cmd("recorder_stop")
-    time.sleep(0.3)
-    send_cmd("hangup")
-    OUTGOING_RECORD["active"] = False
-
     wav, y4m = f"{base}.wav", f"{base}.y4m"
     if not (os.path.exists(wav) and os.path.exists(y4m)):
         log("registrazione: file mancanti, muxing annullato"); return
     log(f"file intermedi: wav={os.path.getsize(wav)} byte, y4m={os.path.getsize(y4m)} byte")
 
-    # fps reale = frame scritti / durata di registrazione effettiva.
-    # NB: calcoliamo sulla durata della finestra (dur secondi), non su quella dell'audio,
-    # perché l'audio potrebbe non esserci (bug noto). Il video arriva a ~9-10 fps dal C300X.
     try:
         with open(y4m, "rb") as f:
             nframes = f.read().count(b"FRAME\n")
         audio_bytes = max(0, os.path.getsize(wav) - 44)
         audio_dur = audio_bytes / (8000 * 2)
-        # usiamo dur (la finestra di registrazione) come riferimento di durata
         fps_real = max(1.0, min(30.0, nframes / dur)) if nframes > 1 else 10.0
         log(f"muxing MP4: {nframes} frame video / {dur}s finestra -> {fps_real:.2f} fps "
             f"(audio={audio_bytes} byte = {audio_dur:.1f}s)")
     except Exception as e:
         log(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
 
-    # muxing robusto: se un flusso manca (video non arrivato dal citofono, o audio zero),
-    # salviamo comunque in MP4 quello che c'è, senza dare errore a ffmpeg
-    y4m_ok = os.path.getsize(y4m) > 100   # almeno l'header Y4M (~40 byte) + 1 frame
-    wav_ok = audio_bytes > 1000           # almeno ~0.03s di audio
+    y4m_ok = os.path.getsize(y4m) > 100
+    wav_ok = audio_bytes > 1000
     log(f"muxing MP4 con ffmpeg: {mp4} (video_ok={y4m_ok}, audio_ok={wav_ok})")
     try:
         if y4m_ok and wav_ok:
@@ -284,6 +268,53 @@ def _run_outgoing_record():
         for f in (wav, y4m):
             try: os.remove(f)
             except OSError: pass
+
+
+def _run_outgoing_record():
+    """Chiamata ON-DEMAND: start, attesa, stop, hangup, muxing."""
+    base = OUTGOING_RECORD["basepath"]
+    mp4 = OUTGOING_RECORD["mp4"]
+    dur = OUTGOING_RECORD["duration"]
+    time.sleep(min(SNAPSHOT_DELAY, 2.0))
+    for _ in range(8):
+        send_cmd("keyframe")
+        time.sleep(0.5)
+    send_cmd("recorder_start", base)
+    log(f"registrazione in corso per {dur}s...")
+    time.sleep(dur)
+    send_cmd("recorder_stop")
+    time.sleep(0.3)
+    send_cmd("hangup")
+    OUTGOING_RECORD["active"] = False
+    _mux_recording(base, mp4, dur)
+
+
+def _run_incoming_record():
+    """Chiamata PERSA (fallback_video): la nostra accept() ha stabilito la sessione, registriamo
+    audio+video della chiamata reale per N secondi, poi hangup. Se il citofono chiude prima
+    (ring timeout o altro), ci fermiamo e muxiamo quello che abbiamo."""
+    base = INCOMING_RECORD["basepath"]
+    mp4 = INCOMING_RECORD["mp4"]
+    dur = INCOMING_RECORD["duration"]
+    time.sleep(0.5)
+    for _ in range(4):
+        send_cmd("keyframe")
+        time.sleep(0.3)
+    send_cmd("recorder_start", base)
+    log(f"registrazione chiamata persa in corso per {dur}s -> {mp4}")
+    t_start = time.time()
+    while time.time() - t_start < dur:
+        if not STATE.get("call_active", True):
+            log(f"chiamata chiusa a {time.time()-t_start:.1f}s, fermo registrazione")
+            break
+        time.sleep(0.5)
+    send_cmd("recorder_stop")
+    time.sleep(0.3)
+    # Se la chiamata e' ancora attiva, chiudiamo noi (l'abbiamo "catturata" ad uso esclusivo).
+    if STATE.get("call_active"):
+        send_cmd("hangup")
+    INCOMING_RECORD["active"] = False
+    _mux_recording(base, mp4, dur)
 
 
 def capture_snapshot():
@@ -631,6 +662,19 @@ def control_loop():
             _mark_missed()
             send_cmd("accept")
 
+    def do_accept_record():
+        # chiamato dopo il timeout (fallback_video) se nessuno ha risposto
+        if state["call_active"] and not state["we_accepted"]:
+            state["we_accepted"] = True
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            base = os.path.join("/tmp", f"call-{ts}")
+            mp4 = os.path.join(RECORDINGS_DIR, f"call-{ts}.mp4")
+            INCOMING_RECORD.update({"active": True, "duration": FALLBACK_RECORD_DURATION,
+                                    "basepath": base, "mp4": mp4})
+            log(f"nessuno ha risposto: chiamata persa, accetto e registro {FALLBACK_RECORD_DURATION}s -> {mp4}")
+            _mark_missed()
+            send_cmd("accept")
+
     while True:
         try:
             chunk = sock.recv(4096)
@@ -661,6 +705,7 @@ def control_loop():
             if etype == "CALL_INCOMING":
                 _mark_ringing()
                 state["call_active"] = True
+                STATE["call_active"] = True
                 state["we_accepted"] = False
                 fire_ha_event()
                 if CAPTURE_MODE == "fallback_snapshot":
@@ -670,14 +715,23 @@ def control_loop():
                     t.daemon = True
                     t.start()
                     state["timer"] = t
+                elif CAPTURE_MODE == "fallback_video":
+                    # Stessa logica di fallback_snapshot ma registriamo video+audio invece
+                    # dell'immagine. Aspetta FALLBACK_DELAY secondi: se nessuno risponde dal
+                    # citofono fisico o dall'app, scatta e cattura il video della chiamata persa.
+                    log(f"fallback_video: attendo {FALLBACK_DELAY:.0f}s; se nessuno risponde, registro")
+                    cancel_timer()
+                    t = threading.Timer(FALLBACK_DELAY, do_accept_record)
+                    t.daemon = True
+                    t.start()
+                    state["timer"] = t
                 else:
                     log("notify_only: squilla, non rispondo (lascio squillare gli altri)")
 
             if etype == "CALL_ESTABLISHED" and OUTGOING_RECORD["active"]:
-                # IMPORTANTE: eseguiamo in un thread per NON bloccare il ctrl_loop che riceve
-                # gli eventi di baresip. Un time.sleep(30) qui farebbe perdere eventi e,
-                # peggio, interromperebbe il flusso di comandi mantenendo la chiamata appesa.
                 threading.Thread(target=_run_outgoing_record, daemon=True).start()
+            elif etype == "CALL_ESTABLISHED" and INCOMING_RECORD["active"]:
+                threading.Thread(target=_run_incoming_record, daemon=True).start()
             elif etype == "CALL_ESTABLISHED" and (state["we_accepted"] or OUTGOING_CAPTURE["active"]):
                 def _do_capture():
                     time.sleep(SNAPSHOT_DELAY)
@@ -688,12 +742,9 @@ def control_loop():
                 threading.Thread(target=_do_capture, daemon=True).start()
 
             if etype == "CALL_CLOSED":
-                # se la chiamata si chiude prima del timeout (qualcuno ha risposto altrove),
-                # annulliamo il timer di cattura: niente foto, nessuna interferenza.
-                # NON azzeriamo subito "ringing": lo lascia spegnere al timer RING_HOLD, così
-                # l'integrazione (che interroga ogni 2s) riesce sempre a rilevare lo squillo.
                 cancel_timer()
                 state["call_active"] = False
+                STATE["call_active"] = False
                 state["we_accepted"] = False
 
 
