@@ -487,6 +487,22 @@ class Handler(BaseHTTPRequestHandler):
             info = {k: RT.get(k) for k in ("plant_name", "plant_id", "gateway_id",
                                            "devaddr", "device_count", "devices")}
             self._send(200, json.dumps(info).encode(), "application/json")
+        elif path == "/debug/conf":
+            # Mostra conf.xml e i candidati DEVADDR per diagnostica
+            try:
+                with open("/data/conf.xml") as f:
+                    conf = f.read()
+            except OSError as e:
+                self._send(404, f"conf.xml non leggibile: {e}".encode()); return
+            # Estrai p_default, dev, address, posti interni / esterni
+            import re as _re
+            candidati = []
+            for m in _re.finditer(r'(dev|p_default|address|sysaddress|where)="([^"]+)"', conf):
+                candidati.append(f"{m.group(1)}={m.group(2)}")
+            body = ("# Candidati DEVADDR (prova questi valori in sdp_devaddr):\n"
+                    + "\n".join(sorted(set(candidati)))
+                    + "\n\n# conf.xml completo:\n" + conf)
+            self._send(200, body.encode(), "text/plain; charset=utf-8")
         elif path == "/cmd/record":
             # registra audio+video per N secondi (default 30) e salva un MP4
             from urllib.parse import urlparse, parse_qs
@@ -505,12 +521,10 @@ class Handler(BaseHTTPRequestHandler):
                                     "basepath": base, "mp4": mp4})
             peer = f"sip:c300x@{gw}"
             log(f"registrazione on-demand: {duration}s -> {mp4}")
-            # Esattamente come fa l'app ufficiale: audio=sendrecv video=recvonly.
-            # Il DEVADDR nell'SDP (iniettato dal modulo devaddr_sdp) ci autentica.
-            # Senza DEVADDR corretto, video=recvonly non riceveva nemmeno video (bug noto
-            # nelle versioni precedenti); ora che DEVADDR funziona, questa combinazione
-            # dovrebbe essere accettata completamente.
-            send_cmd("dialdir", f"{peer} audio=sendrecv video=recvonly")
+            # Il citofono manda media solo con video=sendrecv (anche con DEVADDR corretto).
+            # video=recvonly riceve niente. L'app ufficiale usa recvonly ma probabilmente
+            # ha anche altre differenze non ancora identificate che permettono quella direzione.
+            send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
             self._send(200, (f"registrazione avviata ({duration}s), file: {mp4}").encode())
         elif path == "/cmd/capture":
             # SPERIMENTALE: chiama il posto esterno e cattura (per testare la patch sa_af)
