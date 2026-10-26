@@ -102,8 +102,17 @@ _missed_timer = None
 MISSED_HOLD = 30.0   # per quanto tenere "acceso" lo stato Chiamata persa (s)
 
 
+DEBUG_LOGS = os.environ.get("DEBUG_LOGS", "false").lower() in ("1", "true", "yes", "on")
+
+
 def log(*a):
     print(time.strftime("%H:%M:%S"), "[doorentry-bticino-c300x]", *a, flush=True)
+
+
+def log_debug(*a):
+    """Log solo se DEBUG_LOGS e' attivo (opzione dell'add-on)."""
+    if DEBUG_LOGS:
+        print(time.strftime("%H:%M:%S"), "[debug]", *a, flush=True)
 
 
 def _mark_ringing():
@@ -227,7 +236,7 @@ def _mux_recording(base, mp4, dur):
     wav, y4m = f"{base}.wav", f"{base}.y4m"
     if not (os.path.exists(wav) and os.path.exists(y4m)):
         log("registrazione: file mancanti, muxing annullato"); return
-    log(f"file intermedi: wav={os.path.getsize(wav)} byte, y4m={os.path.getsize(y4m)} byte")
+    log_debug(f"file intermedi: wav={os.path.getsize(wav)} byte, y4m={os.path.getsize(y4m)} byte")
 
     try:
         with open(y4m, "rb") as f:
@@ -235,10 +244,10 @@ def _mux_recording(base, mp4, dur):
         audio_bytes = max(0, os.path.getsize(wav) - 44)
         audio_dur = audio_bytes / (8000 * 2)
         fps_real = max(1.0, min(30.0, nframes / dur)) if nframes > 1 else 10.0
-        log(f"muxing MP4: {nframes} frame video / {dur}s finestra -> {fps_real:.2f} fps "
+        log_debug(f"muxing MP4: {nframes} frame video / {dur}s finestra -> {fps_real:.2f} fps "
             f"(audio={audio_bytes} byte = {audio_dur:.1f}s)")
     except Exception as e:
-        log(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
+        log_debug(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
 
     y4m_ok = os.path.getsize(y4m) > 100
     wav_ok = audio_bytes > 1000
@@ -694,7 +703,7 @@ def control_loop():
                 continue
             etype = ev.get("type", "")
             if ev.get("event") and etype:
-                log(f"evento baresip: {etype}")
+                log_debug(f"evento baresip: {etype}")
 
             if etype == "REGISTER_OK":
                 STATE["registered"] = True
