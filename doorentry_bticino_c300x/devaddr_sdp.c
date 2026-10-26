@@ -45,45 +45,14 @@ static void inject_devaddr(struct call *call)
 }
 
 
-static void dump_remote_sdp(struct call *call)
-{
-	if (!call) return;
-	info("devaddr_sdp: --- REMOTE SDP ricevuto dal citofono ---\n");
-
-	struct audio *au = call_audio(call);
-	if (au) {
-		struct sdp_media *m = stream_sdpmedia(audio_strm(au));
-		if (m) {
-			info("devaddr_sdp: audio remote direction: %s, port=%d\n",
-			     sdp_dir_name(sdp_media_rdir(m)),
-			     sdp_media_rport(m));
-		}
-	}
-	struct video *vi = call_video(call);
-	if (vi) {
-		struct sdp_media *m = stream_sdpmedia(video_strm(vi));
-		if (m) {
-			info("devaddr_sdp: video remote direction: %s, port=%d\n",
-			     sdp_dir_name(sdp_media_rdir(m)),
-			     sdp_media_rport(m));
-		}
-	}
-	info("devaddr_sdp: --- fine REMOTE SDP ---\n");
-}
-
-
 static void event_handler(enum bevent_ev ev, struct bevent *event, void *arg)
 {
 	(void)arg;
-	if (ev == BEVENT_CALL_LOCAL_SDP) {
-		/* param "offer" = SDP outgoing nostro, "answer" = risposta a un INVITE in arrivo */
-		const char *txt = bevent_get_text(event);
-		if (txt && strcmp(txt, "offer") == 0)
-			inject_devaddr(bevent_get_call(event));
-	}
-	else if (ev == BEVENT_CALL_REMOTE_SDP) {
-		dump_remote_sdp(bevent_get_call(event));
-	}
+	if (ev != BEVENT_CALL_LOCAL_SDP) return;
+	/* param "offer" = SDP outgoing nostro, "answer" = risposta a un INVITE in arrivo */
+	const char *txt = bevent_get_text(event);
+	if (!txt || strcmp(txt, "offer") != 0) return;
+	inject_devaddr(bevent_get_call(event));
 }
 
 
