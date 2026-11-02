@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.31.1
+
+- Rimosso `build.yaml`, deprecato dal Supervisor: l'immagine base Debian e' ora indicata
+  direttamente nel `Dockerfile` usando l'argomento `BUILD_ARCH`.
+
 ## 1.31.0
 
 - Audio nelle registrazioni: il relay media del cloud BTicino inoltra l'audio solo dopo
