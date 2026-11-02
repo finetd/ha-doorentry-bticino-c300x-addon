@@ -83,11 +83,15 @@ FALLBACK_RECORD_DURATION = int(os.environ.get("FALLBACK_RECORD_DURATION", "30"))
 RECORDINGS_DIR = os.path.join(WORKDIR, "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
-# ripulisce le vecchie registrazioni con timestamp (ora teniamo solo last.mp4)
+# Nella cartella resta un solo file, last.mp4, sovrascritto a ogni registrazione.
+# All'avvio rimuoviamo tutto il resto (registrazioni con timestamp, thumbnail .jpg e i
+# symlink delle versioni precedenti).
 for _f in os.listdir(RECORDINGS_DIR):
-    if _f != "last.mp4" and _f.endswith(".mp4"):
-        try: os.remove(os.path.join(RECORDINGS_DIR, _f))
-        except OSError: pass
+    _p = os.path.join(RECORDINGS_DIR, _f)
+    if _f == "last.mp4" and not os.path.islink(_p):
+        continue
+    try: os.remove(_p)
+    except OSError: pass
 
 # stato condiviso letto dall'integrazione HA via /state
 STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
@@ -144,23 +148,6 @@ def _latest_recording():
     return items[0] if items else None
 
 
-def _refresh_last_alias(target_mp4):
-    """Aggiorna last.mp4 (e last.jpg) come symlink al file piu' recente.
-    Se target_mp4 e' gia' last.mp4 (chiamata on-demand), non facciamo nulla."""
-    last_mp4 = os.path.join(RECORDINGS_DIR, "last.mp4")
-    last_jpg = os.path.join(RECORDINGS_DIR, "last.jpg")
-    if os.path.abspath(target_mp4) == os.path.abspath(last_mp4):
-        return
-    target_jpg = target_mp4[:-4] + ".jpg"
-    for link, src in ((last_mp4, target_mp4), (last_jpg, target_jpg)):
-        try:
-            if os.path.lexists(link):
-                os.remove(link)
-            if os.path.exists(src):
-                # usiamo nomi relativi cosi' se qualcuno sposta la directory il link regge
-                os.symlink(os.path.basename(src), link)
-        except OSError as e:
-            log_debug(f"alias {link} non aggiornato: {e}")
 
 
 def _mark_ringing():
@@ -278,6 +265,23 @@ def _cleanup_pngs():
                 pass
 
 
+def _update_snapshot_from_video(mp4):
+    import subprocess
+    tmp = SNAPSHOT_PATH + ".tmp.jpg"
+    for extra in (["-ss", "3"], []):
+        try:
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *extra, "-i", mp4,
+                            "-frames:v", "1", "-q:v", "3", tmp], check=True, timeout=30)
+            if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
+                os.replace(tmp, SNAPSHOT_PATH)
+                log_debug(f"istantanea aggiornata dal video: {SNAPSHOT_PATH}")
+                return
+        except Exception as e:
+            log_debug(f"estrazione fotogramma fallita: {e}")
+    try: os.remove(tmp)
+    except OSError: pass
+
+
 def _mux_recording(base, mp4, dur):
     """Mux dei file intermedi .wav/.y4m in un MP4 unico. Robusto se uno dei due manca."""
     import subprocess
@@ -319,21 +323,11 @@ def _mux_recording(base, mp4, dur):
             log("niente audio ne' video, muxing annullato"); return
         subprocess.run(cmd, check=True, timeout=120)
         log(f"registrazione salvata: {mp4}")
-        # Estrai la thumbnail (primo frame del MP4) per la Camera entity dell'integrazione.
-        # In caso di solo audio salta: senza video non c'e' una thumbnail possibile.
+        # Aggiorna l'istantanea della camera "Videocitofono" con un fotogramma del video.
+        # Prendiamo il frame a 3s (i primi possono essere grigi mentre il decoder si
+        # aggancia); se il video e' piu' corto, ripieghiamo sul primo frame.
         if y4m_ok:
-            jpg = mp4[:-4] + ".jpg"
-            try:
-                subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
-                                "-i", mp4, "-frames:v", "1", "-q:v", "3", jpg],
-                               check=True, timeout=30)
-                log_debug(f"thumbnail salvata: {jpg}")
-            except Exception as e:
-                log_debug(f"thumbnail fallita (non critico): {e}")
-        # Aggiorna last.mp4 (e last.jpg) come alias all'ultima registrazione, qualunque
-        # sia la fonte (on-demand o chiamata persa). Utile per card dashboard, platform
-        # ffmpeg o automation che puntano a un path fisso.
-        _refresh_last_alias(mp4)
+            _update_snapshot_from_video(mp4)
     except Exception as e:
         log(f"ffmpeg fallito: {e}")
     finally:
@@ -581,9 +575,9 @@ class Handler(BaseHTTPRequestHandler):
             }
             self._send(200, json.dumps(st).encode(), "application/json")
         elif path.startswith("/recordings/"):
-            # Serve un file registrato (MP4 o thumbnail JPG). Blocca path traversal.
+            # Serve la registrazione MP4. Blocca path traversal.
             name = path[len("/recordings/"):]
-            if "/" in name or ".." in name or not name:
+            if "/" in name or ".." in name or not name.endswith(".mp4"):
                 self._send(400, b"nome file non valido"); return
             full = os.path.join(RECORDINGS_DIR, name)
             if not os.path.exists(full) or not os.path.isfile(full):
@@ -593,10 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = f.read()
             except OSError as e:
                 self._send(500, f"errore lettura: {e}".encode()); return
-            ctype = "video/mp4" if name.endswith(".mp4") else \
-                    "image/jpeg" if name.endswith(".jpg") else \
-                    "application/octet-stream"
-            self._send(200, data, ctype)
+            self._send(200, data, "video/mp4")
         elif path == "/recordings":
             # Lista di tutte le registrazioni disponibili con metadati
             items = _list_recordings()
@@ -762,7 +753,7 @@ def control_loop():
             state["we_accepted"] = True
             ts = time.strftime("%Y%m%d-%H%M%S")
             base = os.path.join("/tmp", f"call-{ts}")
-            mp4 = os.path.join(RECORDINGS_DIR, f"call-{ts}.mp4")
+            mp4 = os.path.join(RECORDINGS_DIR, "last.mp4")
             INCOMING_RECORD.update({"active": True, "duration": FALLBACK_RECORD_DURATION,
                                     "basepath": base, "mp4": mp4})
             log(f"nessuno ha risposto: chiamata persa, accetto e registro {FALLBACK_RECORD_DURATION}s -> {mp4}")
