@@ -339,8 +339,9 @@ sip_verify_server       no
 # usa il resolver DNS di sistema: serve a risolvere gli host nei Record-Route per instradare
 # l'ACK del 200 OK (altrimenti "sa_set_port: no af 0" -> ENOSYS e chiusura della chiamata)
 dns_getaddrinfo         yes
-# offri solo i codec che il posto esterno usa davvero (riduce i rifiuti 488)
-audio_codecs            g729,telephone-event
+# offri solo i codec che il posto esterno usa davvero (riduce i rifiuti 488).
+# Speex per primo: e' il codec preferito dal citofono e quello che usa l'app ufficiale.
+audio_codecs            speex,g729,telephone-event
 video_codecs            h264
 {add_mod_lines()}
 audio_player            recplay,nil
