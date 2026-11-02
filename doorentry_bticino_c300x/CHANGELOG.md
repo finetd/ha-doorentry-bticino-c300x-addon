@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.32.1
+
+- Le registrazioni MP4 hanno ora un keyframe al secondo (prima uno solo per tutto il
+  video). La camera di HA converte il MP4 in segmenti HLS e puo' tagliarli solo sui
+  keyframe: il video partiva e poi si bloccava.
+- MP4 con indice all'inizio del file (`faststart`): la riproduzione parte senza dover
+  leggere prima tutto il file.
+- Confermato: con il codec Speex (1.32.0) il citofono invia l'audio, ora presente nelle
+  registrazioni.
+
 ## 1.32.0
 
 - Nuovo codec audio Speex (8 kHz), compilato come modulo baresip (`speex.c`, libspeex).
