@@ -307,7 +307,6 @@ def add_mod_lines():
             # il citofono offre SPEEX (payload 96) e G.729 (payload 18): servono questi!
             "speex.so", "g729.so",
             "g711.so", "g722.so", "g726.so", "opus.so", "amr.so", "gsm.so",
-            "aubridge.so",
             "owncmd.so", "recorder.so", "devaddr_sdp.so",
             "avcodec.so", "swscale.so", "snapshot.so", "fakevideo.so", "account.so"]
     lines = []
@@ -345,17 +344,18 @@ audio_codecs            g729,telephone-event
 video_codecs            h264
 {add_mod_lines()}
 audio_player            recplay,nil
-audio_source            aubridge,nil
+audio_source            recsrc,nil
 video_source            fakevideo,nil
 video_display           fakevideo,nil
 ctrl_tcp_listen         127.0.0.1:4444
 # niente tono di chiamata: senza un vero dispositivo audio il ringback va in errore (ENOSYS)
 # e abbatteva la chiamata on-demand prima dello snapshot
 ringback_disabled       yes
-# Impersona l'User-Agent dell'app ufficiale BTicino Door Entry: il citofono potrebbe
-# filtrare i client sconosciuti negando audio. L'app usa setUserAgent("VctLinphoneService", version).
-sip_useragent           {os.environ.get("DOORENTRY_UA", "VctLinphoneService/2.0.0")}
 """
+    # User-Agent personalizzato solo se impostato nelle opzioni (default: quello di baresip)
+    ua = os.environ.get("DOORENTRY_UA", "").strip()
+    if ua:
+        config += f"sip_useragent           {ua}\n"
     with open(os.path.join(BARESIP_DIR, "config"), "w") as f:
         f.write(config)
     account = (f"<sip:{sip_account}>;auth_pass={sip_password}"
