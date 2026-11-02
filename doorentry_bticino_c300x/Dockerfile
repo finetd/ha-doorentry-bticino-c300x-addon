@@ -1,5 +1,8 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+# Base Debian (non Alpine) per avere apt e le librerie di build di baresip.
+# BUILD_ARCH e' passato dal Supervisor (amd64 o aarch64); il default serve solo per
+# build manuali fuori da Home Assistant. Sostituisce il vecchio build.yaml (deprecato).
+ARG BUILD_ARCH=amd64
+FROM ghcr.io/home-assistant/${BUILD_ARCH}-base-debian:bookworm
 
 # Compila baresip DA SORGENTE + modulo G.729 (il citofono parla solo Speex/G.729, assenti nel
 # pacchetto Debian). bcg729 = G.729 libero; re = base baresip; g729.c = modulo codec (juha-h).
