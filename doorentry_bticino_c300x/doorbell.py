@@ -301,6 +301,15 @@ def _mux_recording(base, mp4, dur):
     except Exception as e:
         log_debug(f"calcolo fps fallito, uso 10 fps: {e}"); fps_real = 10.0
 
+    # Un keyframe al secondo: la camera di HA converte il MP4 in segmenti HLS e puo'
+    # tagliarli solo sui keyframe. Con il default di x264 (uno ogni 250 frame, cioe'
+    # ~30s a 8 fps) il video avrebbe un solo keyframe e si bloccherebbe dopo l'inizio.
+    gop = str(max(1, round(fps_real)))
+    vopts = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+             "-g", gop, "-keyint_min", gop, "-sc_threshold", "0"]
+    # indice del MP4 all'inizio del file: la riproduzione parte senza leggerlo tutto
+    mp4opts = ["-movflags", "+faststart"]
+
     y4m_ok = os.path.getsize(y4m) > 100
     wav_ok = audio_bytes > 1000
     log(f"muxing MP4 con ffmpeg: {mp4} (video_ok={y4m_ok}, audio_ok={wav_ok})")
@@ -308,17 +317,16 @@ def _mux_recording(base, mp4, dur):
         if y4m_ok and wav_ok:
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
                    "-r", f"{fps_real:.3f}", "-i", y4m, "-i", wav,
-                   "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                   "-c:a", "aac", "-b:a", "64k", mp4]
+                   *vopts, "-c:a", "aac", "-b:a", "64k", *mp4opts, mp4]
         elif y4m_ok:
             log("audio mancante o troppo corto, salvo MP4 solo video")
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
                    "-r", f"{fps_real:.3f}", "-i", y4m,
-                   "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", mp4]
+                   *vopts, *mp4opts, mp4]
         elif wav_ok:
             log("video mancante (il citofono non ha mandato), salvo MP4 solo audio")
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
-                   "-i", wav, "-c:a", "aac", "-b:a", "64k", mp4]
+                   "-i", wav, "-c:a", "aac", "-b:a", "64k", *mp4opts, mp4]
         else:
             log("niente audio ne' video, muxing annullato"); return
         subprocess.run(cmd, check=True, timeout=120)
