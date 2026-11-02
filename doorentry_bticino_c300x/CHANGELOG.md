@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.31.0
+
+- Audio nelle registrazioni: il relay media del cloud BTicino inoltra l'audio solo dopo
+  aver ricevuto pacchetti da noi, e la sorgente audio precedente era muta. Il modulo
+  `recorder` ora include la sorgente `recsrc`, che trasmette un rumore di fondo non
+  udibile cosi' il citofono avvia lo stream audio. Rimosso il modulo `aubridge`.
+- Un solo file di registrazione: tutte le registrazioni (on-demand e chiamate perse)
+  sovrascrivono `recordings/last.mp4`. Eliminati i file con timestamp, le thumbnail
+  `.jpg` e i symlink; all'avvio la cartella viene ripulita dai residui.
+- Dopo ogni registrazione l'istantanea `doorbell.jpg` (camera "Videocitofono") viene
+  aggiornata con un fotogramma del video.
+
+## 1.30.4
+
+- User-Agent SIP tornato a quello di default di baresip. L'opzione `sip_useragent` resta
+  disponibile ma vuota di default: imitare l'app ufficiale non portava benefici e poteva
+  interferire con la consegna delle chiamate in arrivo da parte del server BTicino.
+
 ## 1.30.3
 
 - `last.mp4` ora e' un symlink all'ultima registrazione in assoluto, non solo all'ultima
