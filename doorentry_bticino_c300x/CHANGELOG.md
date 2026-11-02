@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.32.2
+
+- Registrazione on-demand: se entro 5 secondi il citofono non invia nessun fotogramma
+  video, l'add-on chiude e richiama una sola volta. Succede soprattutto sulla prima
+  chiamata dopo l'avvio dell'add-on (log: `video=.../0` e `srtp: failed to encrypt
+  RTCP-packet`); la chiamata successiva riceve il video regolarmente.
+
 ## 1.32.1
 
 - Le registrazioni MP4 hanno ora un keyframe al secondo (prima uno solo per tutto il
