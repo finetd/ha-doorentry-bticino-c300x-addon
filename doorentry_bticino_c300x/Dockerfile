@@ -10,7 +10,7 @@ FROM ghcr.io/home-assistant/${BUILD_ARCH}-base-debian:bookworm
 # dipendenze di build e runtime. NB: avcodec (video H.264) richiede ANCHE avfilter+avdevice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake git pkg-config \
-      libssl-dev libopus-dev zlib1g-dev libpng-dev \
+      libssl-dev libopus-dev zlib1g-dev libpng-dev libspeex-dev \
       libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
       libavfilter-dev libavdevice-dev \
       ffmpeg jq ca-certificates python3 python3-cryptography python3-pip \
@@ -67,15 +67,18 @@ RUN git clone --depth 1 https://github.com/juha-h/libbaresip-android.git lba \
 #    - owncmd:      invia i frame OpenWebNet (segreteria, luce, apri-porta) come SIP MESSAGE
 #    - recorder:    registra audio+video in file WAV e Y4M (poi ffmpeg mixa in MP4)
 #    - devaddr_sdp: aggiunge "DEVADDR" nell'SDP INVITE outgoing (necessario per l'audio)
+#    - speex:       codec Speex 8 kHz, il preferito dal citofono (rimosso da baresip upstream)
 COPY owncmd.c      /tmp/owncmd.c
 COPY recorder.c    /tmp/recorder.c
 COPY devaddr_sdp.c /tmp/devaddr_sdp.c
+COPY speex.c       /tmp/speex.c
 RUN MODDIR=$(dirname "$(find /usr/local/lib -name account.so -path '*baresip*' | head -1)") \
     && INC="-I/usr/local/include -I/usr/local/include/re -I/src/baresip/include" \
     && gcc -fPIC -shared -O2 $INC -o "$MODDIR/owncmd.so"      /tmp/owncmd.c \
     && gcc -fPIC -shared -O2 $INC -o "$MODDIR/recorder.so"    /tmp/recorder.c -lpthread \
     && gcc -fPIC -shared -O2 $INC -o "$MODDIR/devaddr_sdp.so" /tmp/devaddr_sdp.c \
-    && ls -l "$MODDIR/owncmd.so" "$MODDIR/recorder.so" "$MODDIR/devaddr_sdp.so"
+    && gcc -fPIC -shared -O2 $INC -o "$MODDIR/speex.so"       /tmp/speex.c -lspeex \
+    && ls -l "$MODDIR/owncmd.so" "$MODDIR/recorder.so" "$MODDIR/devaddr_sdp.so" "$MODDIR/speex.so"
 
 COPY run.sh /run.sh
 COPY provision.py /provision.py
