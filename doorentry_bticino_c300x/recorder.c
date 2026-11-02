@@ -6,6 +6,8 @@
  *     i dati decodificati dalla pipeline (G.729 -> aubuf -> wh) e li scrive su un file WAV
  *     quando la registrazione è attiva. Serve perché aubridge/nil non consuma mai la
  *     pipeline, quindi i filtri audio di decodifica non venivano mai invocati.
+ *   - un AUSRC ("recsrc") che trasmette un rumore di fondo quasi impercettibile: il relay
+ *     media del cloud BTicino inoltra l'audio solo dopo aver ricevuto pacchetti da noi.
  *   - un VIDEO FILTER che si aggancia alla pipeline di decodifica video (push-based,
  *     funziona bene) e scrive i fotogrammi YUV su un file Y4M.
  *   - due comandi:
@@ -187,6 +189,92 @@ static int recplay_alloc(struct auplay_st **stp, const struct auplay *ap,
 
 
 /* ======================================================================= */
+/*  AUSRC "recsrc": trasmette un rumore di fondo quasi impercettibile       */
+/* ======================================================================= */
+/*
+ * Il media passa da un relay del cloud BTicino che inizia a inoltrare uno stream
+ * solo dopo aver ricevuto pacchetti da noi su quella porta. Senza una sorgente che
+ * trasmette, l'audio non parte mai (lo stesso succedeva al video con recvonly).
+ * L'app ufficiale trasmette sempre il microfono; noi trasmettiamo un rumore a circa
+ * -70 dBFS: non udibile dal visitatore, ma il codec lo codifica come audio reale
+ * (il silenzio digitale puro potrebbe essere soppresso).
+ */
+struct ausrc_st {
+	pthread_t thread;
+	volatile bool run;
+	uint32_t srate;
+	uint8_t  ch;
+	uint32_t ptime;
+	ausrc_read_h *rh;
+	void *arg;
+};
+
+static void ausrc_destructor(void *arg)
+{
+	struct ausrc_st *st = arg;
+	if (st->run) {
+		st->run = false;
+		pthread_join(st->thread, NULL);
+	}
+}
+
+static void *ausrc_thread(void *data)
+{
+	struct ausrc_st *st = data;
+	size_t sampc = (st->srate * st->ptime / 1000) * st->ch;
+	int16_t *buf = malloc(sampc * sizeof(int16_t));
+	if (!buf) return NULL;
+	uint32_t seed = 0x1234567u;
+	uint64_t ts = 0;
+	struct auframe af;
+
+	while (st->run) {
+		for (size_t i = 0; i < sampc; i++) {
+			seed = seed * 1103515245u + 12345u;
+			buf[i] = (int16_t)((int)((seed >> 16) & 0xF) - 8);  /* +/-8 */
+		}
+		auframe_init(&af, AUFMT_S16LE, buf, sampc, st->srate, st->ch);
+		af.timestamp = ts;
+		st->rh(&af, st->arg);
+		ts += (uint64_t)st->ptime * 1000;   /* AUDIO_TIMEBASE = microsecondi */
+
+		struct timespec t = { 0, (long)st->ptime * 1000000L };
+		nanosleep(&t, NULL);
+	}
+	free(buf);
+	return NULL;
+}
+
+static int recsrc_alloc(struct ausrc_st **stp, const struct ausrc *as,
+                        struct ausrc_prm *prm, const char *device,
+                        ausrc_read_h *rh, ausrc_error_h *errh, void *arg)
+{
+	(void)as; (void)device; (void)errh;
+	if (!stp || !prm || !rh) return EINVAL;
+	if (prm->fmt != AUFMT_S16LE) return ENOTSUP;
+
+	struct ausrc_st *st = mem_zalloc(sizeof(*st), ausrc_destructor);
+	if (!st) return ENOMEM;
+
+	st->srate = prm->srate;
+	st->ch    = prm->ch;
+	st->ptime = prm->ptime ? prm->ptime : 20;
+	st->rh    = rh;
+	st->arg   = arg;
+	st->run   = true;
+
+	int err = pthread_create(&st->thread, NULL, ausrc_thread, st);
+	if (err) {
+		st->run = false;
+		mem_deref(st);
+		return err;
+	}
+	*stp = st;
+	return 0;
+}
+
+
+/* ======================================================================= */
 /*  VIDEO FILTER: scrive i fotogrammi YUV in un file Y4M                   */
 /* ======================================================================= */
 
@@ -329,6 +417,7 @@ static const struct cmd cmdv[] = {
 /* ======================================================================= */
 
 static struct auplay  *recplay_ap = NULL;
+static struct ausrc   *recsrc_as  = NULL;
 static struct vidfilt  vf_rec = {
 	.name    = "recorder",
 	.encupdh = vid_encupd, .ench = vid_enc,
@@ -343,8 +432,13 @@ static int module_init(void)
 		warning("recorder: auplay_register fallito: %d\n", err);
 		return err;
 	}
+	err = ausrc_register(&recsrc_as, baresip_ausrcl(), "recsrc", recsrc_alloc);
+	if (err) {
+		warning("recorder: ausrc_register fallito: %d\n", err);
+		return err;
+	}
 	vidfilt_register(baresip_vidfiltl(), &vf_rec);
-	info("recorder: modulo caricato (auplay=recplay, vidfilt=recorder)\n");
+	info("recorder: modulo caricato (auplay=recplay, ausrc=recsrc, vidfilt=recorder)\n");
 	return cmd_register(baresip_commands(), cmdv, RE_ARRAY_SIZE(cmdv));
 }
 
@@ -353,6 +447,7 @@ static int module_close(void)
 	cmd_unregister(baresip_commands(), cmdv);
 	vidfilt_unregister(&vf_rec);
 	recplay_ap = mem_deref(recplay_ap);
+	recsrc_as  = mem_deref(recsrc_as);
 	return 0;
 }
 
