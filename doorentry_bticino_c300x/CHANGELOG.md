@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.32.0
+
+- Nuovo codec audio Speex (8 kHz), compilato come modulo baresip (`speex.c`, libspeex).
+  Il citofono offre Speex come codec preferito e G.729 solo come seconda scelta; l'app
+  ufficiale negozia Speex. Ora Speex viene offerto per primo, G.729 resta di riserva.
+- La sorgente audio `recsrc` (introdotta in 1.31.0) resta attiva.
+
 ## 1.31.1
 
 - Rimosso `build.yaml`, deprecato dal Supervisor: l'immagine base Debian e' ora indicata
