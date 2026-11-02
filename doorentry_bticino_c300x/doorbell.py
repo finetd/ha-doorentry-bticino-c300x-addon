@@ -354,6 +354,32 @@ def _run_outgoing_record():
         send_cmd("keyframe")
         time.sleep(0.5)
     send_cmd("recorder_start", base)
+
+    # A volte (in particolare sulla prima chiamata dopo l'avvio dell'add-on) il citofono
+    # non manda il video. Se entro 5s non arriva nessun fotogramma, chiudiamo e
+    # richiamiamo una sola volta: la seconda sessione riceve il video regolarmente.
+    y4m = f"{base}.y4m"
+    for _ in range(10):
+        time.sleep(0.5)
+        if os.path.exists(y4m) and os.path.getsize(y4m) > 100:
+            break
+    else:
+        send_cmd("recorder_stop")
+        time.sleep(0.3)
+        send_cmd("hangup")
+        for f in (f"{base}.wav", y4m):
+            try: os.remove(f)
+            except OSError: pass
+        if OUTGOING_RECORD.get("retries", 0) > 0:
+            OUTGOING_RECORD["retries"] -= 1
+            log("il citofono non sta inviando il video: chiudo e richiamo")
+            time.sleep(2)
+            send_cmd("dialdir", OUTGOING_RECORD["dial"])
+            return   # CALL_ESTABLISHED della nuova chiamata riavvia questa funzione
+        log("il citofono non invia il video nemmeno al secondo tentativo, registrazione annullata")
+        OUTGOING_RECORD["active"] = False
+        return
+
     log(f"registrazione in corso per {dur}s...")
     time.sleep(dur)
     send_cmd("recorder_stop")
@@ -656,14 +682,13 @@ class Handler(BaseHTTPRequestHandler):
             ts = time.strftime("%Y%m%d-%H%M%S")
             base = os.path.join("/tmp", f"rec-{ts}")
             mp4 = os.path.join(RECORDINGS_DIR, "last.mp4")   # sempre lo stesso nome: solo l'ultima
+            # Il citofono manda il video solo se lo trasmettiamo anche noi: video=sendrecv.
+            dial = f"sip:c300x@{gw} audio=sendrecv video=sendrecv"
             OUTGOING_RECORD.update({"active": True, "duration": duration,
-                                    "basepath": base, "mp4": mp4})
-            peer = f"sip:c300x@{gw}"
+                                    "basepath": base, "mp4": mp4,
+                                    "dial": dial, "retries": 1})
             log(f"registrazione on-demand: {duration}s -> {mp4}")
-            # Il citofono manda media solo con video=sendrecv (anche con DEVADDR corretto).
-            # video=recvonly riceve niente. L'app ufficiale usa recvonly ma probabilmente
-            # ha anche altre differenze non ancora identificate che permettono quella direzione.
-            send_cmd("dialdir", f"{peer} audio=sendrecv video=sendrecv")
+            send_cmd("dialdir", dial)
             self._send(200, (f"registrazione avviata ({duration}s), file: {mp4}").encode())
         elif path == "/cmd/capture":
             # SPERIMENTALE: chiama il posto esterno e cattura (per testare la patch sa_af)
