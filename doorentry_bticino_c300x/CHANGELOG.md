@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.33.0
+
+- Chiamate in arrivo perse: la registrazione SIP veniva rinnovata ogni 10 minuti e nel
+  frattempo la connessione TLS restava inattiva. I bilanciatori cloud (Azure: 4 minuti)
+  chiudono in silenzio le connessioni inattive, e il server non riusciva piu' a consegnare
+  le chiamate fino alla registrazione successiva. Ora la registrazione si rinnova ogni
+  2 minuti, mantenendo la connessione sempre attiva.
+- Nuova opzione `sip_register_interval` (60-600 secondi, default 120).
+- Lo stato "Connesso" usa un timeout proporzionato all'intervallo di registrazione.
+
 ## 1.32.2
 
 - Registrazione on-demand: se entro 5 secondi il citofono non invia nessun fotogramma
