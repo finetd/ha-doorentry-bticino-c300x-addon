@@ -99,8 +99,9 @@ STATE = {"ringing": False, "ring_count": 0, "last_ring": 0.0,
          "registered": False, "last_register": 0.0,
          "call_active": False}
 # se non arriva un REGISTER_OK entro questo tempo, consideriamo la connessione persa.
-# La registrazione si rinnova ~ogni 9 min (regint 600s): diamo margine.
-REGISTER_TIMEOUT = 800.0
+# Baresip rinnova la registrazione poco prima della scadenza: 2.5 volte l'intervallo da' margine.
+SIP_REGINT = max(60, min(600, int(os.environ.get("SIP_REGINT", "120") or 120)))
+REGISTER_TIMEOUT = max(180.0, SIP_REGINT * 2.5)
 _ring_timer = None
 _missed_timer = None
 MISSED_HOLD = 30.0   # per quanto tenere "acceso" lo stato Chiamata persa (s)
