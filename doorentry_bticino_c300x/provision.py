@@ -43,6 +43,11 @@ DATA_DIR = "/data"
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 CERT_DIR = os.path.join(DATA_DIR, "certs")
 RUNTIME_FILE = os.path.join(DATA_DIR, "runtime.json")
+# Intervallo di registrazione SIP in secondi. Tra una registrazione e l'altra la connessione
+# TLS resta muta, e alcuni bilanciatori cloud chiudono in silenzio le connessioni TCP inattive
+# (Azure dopo 4 minuti): il server non riesce piu' a consegnarci le chiamate in arrivo.
+# Registrandoci spesso la connessione resta sempre attiva.
+SIP_REGINT = max(60, min(600, int(os.environ.get("SIP_REGINT", "120") or 120)))
 BARESIP_DIR = "/etc/baresip"
 
 EMAIL = os.environ.get("EMAIL", "").strip()
@@ -361,7 +366,7 @@ ringback_disabled       yes
         f.write(config)
     account = (f"<sip:{sip_account}>;auth_pass={sip_password}"
                f';outbound="sip:{SIP_SERVER};transport=tls"'
-               f";answermode=manual;mediaenc=srtp-mand;video=yes;regint=600\n")
+               f";answermode=manual;mediaenc=srtp-mand;video=yes;regint={SIP_REGINT}\n")
     with open(os.path.join(BARESIP_DIR, "accounts"), "w") as f:
         f.write(account)
 
